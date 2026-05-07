@@ -21,7 +21,10 @@ type TaskRunnerProps = {
 };
 
 const defaultPrompt = "";
-const eventWindowSize = 120;
+const olderEventPageSize = 180;
+const initialEventPageSize = 160;
+const initialConversationCharTarget = 3200;
+const maxInitialEventWindow = 420;
 type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
 
 export function TaskRunner({
@@ -73,20 +76,33 @@ export function TaskRunner({
 
   const loadLatestEvents = useCallback(async (nextTaskId: string) => {
     const firstPage = await listTaskEvents(nextTaskId, 0, 1);
-    const offset = Math.max(0, firstPage.total - eventWindowSize);
-    const page = await listTaskEvents(nextTaskId, offset, eventWindowSize);
+    let offset = Math.max(0, firstPage.total - initialEventPageSize);
+    let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
+    let events = page.events;
+
+    while (
+      offset > 0 &&
+      events.length < maxInitialEventWindow &&
+      countConversationCharacters(events) < initialConversationCharTarget
+    ) {
+      const nextOffset = Math.max(0, offset - initialEventPageSize);
+      const nextPage = await listTaskEvents(nextTaskId, nextOffset, offset - nextOffset);
+      events = [...nextPage.events, ...events];
+      offset = nextPage.offset;
+    }
+
     activeTaskIdRef.current = nextTaskId;
     setTaskId(nextTaskId);
-    setEventOffset(page.offset);
-    setStatus([...page.events].reverse().find((event) => event.status)?.status ?? "idle");
-    setLogs(eventsToLogs(page.events));
+    setEventOffset(offset);
+    setStatus([...events].reverse().find((event) => event.status)?.status ?? "idle");
+    setLogs(eventsToLogs(events));
   }, []);
 
   const loadOlderEvents = useCallback(async () => {
     if (!taskId || !hasOlderEvents || isLoadingOlder) return;
     setIsLoadingOlder(true);
     try {
-      const nextOffset = Math.max(0, eventOffset - eventWindowSize);
+      const nextOffset = Math.max(0, eventOffset - olderEventPageSize);
       const limit = eventOffset - nextOffset;
       const page = await listTaskEvents(taskId, nextOffset, limit);
       setEventOffset(page.offset);
@@ -694,6 +710,13 @@ function eventsToLogs(events: Awaited<ReturnType<typeof listTaskEvents>>["events
     source: event.source,
     text: event.text ?? event.textPreview ?? event.payloadPath ?? event.event,
   }));
+}
+
+function countConversationCharacters(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
+  return events.reduce((total, event) => {
+    if (event.source !== "user" && event.source !== "assistant") return total;
+    return total + (event.text?.length ?? event.textPreview?.length ?? 0);
+  }, 0);
 }
 
 function mergeLogWindows(olderLogs: TaskLogLine[], currentLogs: TaskLogLine[]) {

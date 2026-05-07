@@ -1107,10 +1107,14 @@ textarea {
 }
 
 .history-window-status {
+  background: linear-gradient(180deg, #181818 0%, rgb(24 24 24 / 92%) 75%, rgb(24 24 24 / 0%) 100%);
   color: #969696;
   font-size: 12px;
-  padding: 2px 0 8px;
+  padding: 4px 0 12px;
+  position: sticky;
   text-align: center;
+  top: 0;
+  z-index: 2;
 }
 
 .history-event {
