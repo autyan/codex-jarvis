@@ -14,6 +14,7 @@ export type StartDiagnoseTaskRequest = {
   profileId: string;
   prompt: string;
   attachedContext?: string;
+  directExecute?: boolean;
 };
 
 export type StartPatchTaskRequest = StartDiagnoseTaskRequest;

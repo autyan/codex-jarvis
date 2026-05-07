@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, CheckCircle2, Send } from "lucide-react";
+import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
@@ -30,6 +30,7 @@ export function TaskRunner({
   const [taskId, setTaskId] = useState<string>();
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
+  const [directExecute, setDirectExecute] = useState(false);
   const activeTaskIdRef = useRef<string | undefined>(undefined);
   const selectedEventsQuery = useQuery({
     queryKey: ["task-events", selectedTaskId, "workspace"],
@@ -132,8 +133,9 @@ export function TaskRunner({
       const request = {
         taskId: nextTaskId,
         profileId: profile.id,
-        prompt: buildProposalPrompt(message, profile.writeEnabled),
+        prompt: buildProposalPrompt(message, profile.writeEnabled, directExecute),
         attachedContext,
+        directExecute,
       };
       const response = profile.writeEnabled ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
@@ -196,6 +198,28 @@ export function TaskRunner({
         </div>
       ) : null}
 
+      <label className={directExecute ? "direct-execute-toggle active" : "direct-execute-toggle"}>
+        <input
+          type="checkbox"
+          checked={directExecute}
+          onChange={(event) => setDirectExecute(event.target.checked)}
+          disabled={isActive}
+        />
+        <ShieldAlert size={16} />
+        <span>Direct execute</span>
+      </label>
+
+      {directExecute ? (
+        <div className="risk-warning">
+          Direct execute can run non-privileged commands immediately in this session. Keep it off unless you are ready
+          for Codex to act without first shaping a proposal.
+        </div>
+      ) : (
+        <div className="proposal-hint">
+          Proposal keeps evolving as you continue the conversation. Use Apply only when the current proposal is ready.
+        </div>
+      )}
+
       <div className="button-row">
         <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
           <Ban size={16} />
@@ -203,7 +227,7 @@ export function TaskRunner({
         </button>
         <button className="secondary-action apply-action" onClick={onOpenReview} disabled={!canApplyProposal}>
           <CheckCircle2 size={16} />
-          Apply proposal
+          Review / Apply proposal
         </button>
         <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
           <Send size={16} />
@@ -216,10 +240,12 @@ export function TaskRunner({
   );
 }
 
-function buildProposalPrompt(message: string, canWriteDrafts: boolean) {
-  const proposalInstruction = canWriteDrafts
-    ? "If the conversation reaches a concrete decision, create a proposal automatically. Use files in the current session workspace for file drafts. For privileged or risky system operations, write a command plan instead of executing it."
-    : "If the conversation reaches a concrete decision, create a command plan in your response. Do not write files.";
+function buildProposalPrompt(message: string, canWriteDrafts: boolean, directExecute: boolean) {
+  const proposalInstruction = directExecute
+    ? "Direct execute is enabled for this turn. Execute safe, non-privileged commands when needed instead of only drafting a proposal. Keep all file writes inside the current session workspace unless the app explicitly allows more."
+    : canWriteDrafts
+      ? "The proposal is allowed to evolve over multiple messages. If the conversation reaches a concrete decision, update the current proposal automatically. Use files in the current session workspace for file drafts. For privileged or risky system operations, write a command plan instead of executing it."
+      : "The proposal is allowed to evolve over multiple messages. If the conversation reaches a concrete decision, update the command plan in your response. Do not write files.";
 
   return `${proposalInstruction}\n\nUser message:\n${message}`;
 }

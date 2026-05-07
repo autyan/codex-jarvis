@@ -74,6 +74,8 @@ struct StartDiagnoseTaskRequest {
     profile_id: String,
     prompt: String,
     attached_context: Option<String>,
+    #[serde(default)]
+    direct_execute: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +85,8 @@ struct StartPatchTaskRequest {
     profile_id: String,
     prompt: String,
     attached_context: Option<String>,
+    #[serde(default)]
+    direct_execute: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -259,6 +263,7 @@ fn start_diagnose_task(
     }
 
     let attached_context = request.attached_context;
+    let direct_execute = request.direct_execute;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &prompt);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
@@ -294,7 +299,14 @@ fn start_diagnose_task(
             },
         );
 
-        let task_prompt = build_diagnose_prompt(&profile, &runtime_cwd, &runtime_read_paths, &context, &prompt);
+        let task_prompt = build_diagnose_prompt(
+            &profile,
+            &runtime_cwd,
+            &runtime_read_paths,
+            &context,
+            &prompt,
+            direct_execute,
+        );
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
@@ -384,6 +396,7 @@ fn start_patch_task(
     }
 
     let attached_context = request.attached_context;
+    let direct_execute = request.direct_execute;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &prompt);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
@@ -433,7 +446,15 @@ fn start_patch_task(
             },
         );
 
-        let task_prompt = build_patch_prompt(&profile, &runtime_cwd, &runtime_read_paths, &runtime_write_paths, &context, &prompt);
+        let task_prompt = build_patch_prompt(
+            &profile,
+            &runtime_cwd,
+            &runtime_read_paths,
+            &runtime_write_paths,
+            &context,
+            &prompt,
+            direct_execute,
+        );
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
@@ -1169,7 +1190,14 @@ fn build_diagnose_prompt(
     read_paths: &[String],
     context: &str,
     user_prompt: &str,
+    direct_execute: bool,
 ) -> String {
+    let execution_policy = if direct_execute {
+        "Direct execute is enabled. You may run safe, read-only, non-privileged commands needed for diagnosis. Do not modify files, do not run sudo, and do not run destructive commands."
+    } else {
+        "Proposal mode is active. Discuss, diagnose, and update the proposal over multiple turns. Do not apply changes."
+    };
+
     format!(
         "You are assisting with a read-only Linux workstation maintenance task.\n\n\
 Task profile:\n\
@@ -1181,6 +1209,7 @@ Task profile:\n\
 - Writes allowed: no\n\
 - Intended readable paths:\n{read_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
+Execution policy:\n{execution_policy}\n\n\
 Rules:\n\
 1. Do not modify files.\n\
 2. Do not run sudo.\n\
@@ -1198,6 +1227,7 @@ User task:\n{user_prompt}",
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
             .join("\n"),
+        execution_policy = execution_policy,
         deny_paths = profile
             .deny_paths
             .iter()
@@ -1214,7 +1244,14 @@ fn build_patch_prompt(
     write_paths: &[String],
     context: &str,
     user_prompt: &str,
+    direct_execute: bool,
 ) -> String {
+    let execution_policy = if direct_execute {
+        "Direct execute is enabled. You may run safe, non-privileged commands and write inside the listed writable paths immediately. Do not run sudo, package install/remove/update commands, service enable/disable commands, destructive file deletion, or boot/kernel/security changes unless the user explicitly provided the exact command and accepted the risk."
+    } else {
+        "Proposal mode is active. Let the proposal evolve over multiple turns. Create or update file drafts inside writable paths, and create command plans for privileged or risky system operations. Do not apply the proposal to real system targets."
+    };
+
     format!(
         "You are assisting with a Linux workstation maintenance patch task.\n\n\
 Task profile:\n\
@@ -1226,6 +1263,7 @@ Task profile:\n\
 - Intended readable paths:\n{read_paths}\n\
 - Writable paths:\n{write_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
+Execution policy:\n{execution_policy}\n\n\
 Rules:\n\
 1. Modify only writable paths listed above.\n\
 2. Do not modify forbidden paths.\n\
@@ -1250,6 +1288,7 @@ User task:\n{user_prompt}",
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
             .join("\n"),
+        execution_policy = execution_policy,
         deny_paths = profile
             .deny_paths
             .iter()

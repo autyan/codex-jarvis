@@ -528,6 +528,46 @@ textarea {
   padding: 0;
 }
 
+.direct-execute-toggle {
+  align-items: center;
+  border: 1px solid #454545;
+  border-radius: 3px;
+  color: #cccccc;
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 8px;
+  width: fit-content;
+}
+
+.direct-execute-toggle input {
+  margin: 0;
+}
+
+.direct-execute-toggle.active {
+  border-color: #ce9178;
+  color: #ce9178;
+}
+
+.proposal-hint,
+.risk-warning {
+  border-radius: 3px;
+  color: #969696;
+  margin-top: 6px;
+  padding: 6px 8px;
+}
+
+.proposal-hint {
+  background: #1e1e1e;
+  border: 1px solid #333333;
+}
+
+.risk-warning {
+  background: #33261f;
+  border: 1px solid #8a4b1f;
+  color: #d7ba7d;
+}
+
 .button-row {
   gap: 6px;
   margin: 8px 0;
