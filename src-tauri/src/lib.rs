@@ -5,7 +5,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{BufRead, BufReader},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -28,6 +28,18 @@ struct CodexCliInfo {
     path: Option<String>,
     version: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    codex_cli_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetCodexCliPathRequest {
+    path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,22 +181,49 @@ struct TerminalEvent {
 
 #[tauri::command]
 fn detect_codex_cli() -> CodexCliInfo {
-    match Command::new("codex").arg("--version").output() {
+    let Some(path) = configured_codex_cli_path() else {
+        return CodexCliInfo {
+            found: false,
+            path: None,
+            version: None,
+            error: Some("No Codex CLI path configured".to_string()),
+        };
+    };
+
+    validate_codex_cli_path(&path)
+}
+
+#[tauri::command]
+fn set_codex_cli_path(request: SetCodexCliPathRequest) -> Result<CodexCliInfo, String> {
+    let path = normalize_executable_path(&request.path)?;
+    let info = validate_codex_cli_path(&path);
+    if !info.found {
+        return Err(info.error.unwrap_or_else(|| "Codex CLI validation failed".to_string()));
+    }
+
+    let mut settings = read_app_settings();
+    settings.codex_cli_path = Some(path);
+    write_app_settings(&settings)?;
+    Ok(info)
+}
+
+fn validate_codex_cli_path(path: &str) -> CodexCliInfo {
+    match Command::new(path).arg("--version").output() {
         Ok(output) if output.status.success() => CodexCliInfo {
             found: true,
-            path: Some("codex".to_string()),
+            path: Some(path.to_string()),
             version: Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
             error: None,
         },
         Ok(output) => CodexCliInfo {
             found: false,
-            path: None,
+            path: Some(path.to_string()),
             version: None,
             error: Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
         },
         Err(error) => CodexCliInfo {
             found: false,
-            path: None,
+            path: Some(path.to_string()),
             version: None,
             error: Some(error.to_string()),
         },
@@ -212,6 +251,7 @@ fn start_diagnose_task(
 
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
+    let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
     let task_id_for_thread = task_id.clone();
@@ -242,7 +282,7 @@ fn start_diagnose_task(
 
         let task_prompt = build_diagnose_prompt(&profile, &context, &prompt);
         let cwd = expand_home(profile.cwd);
-        let mut command = Command::new("codex");
+        let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
             .arg(task_prompt)
@@ -327,6 +367,7 @@ fn start_patch_task(
 
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
+    let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
     let task_id_for_thread = task_id.clone();
@@ -370,7 +411,7 @@ fn start_patch_task(
 
         let task_prompt = build_patch_prompt(&profile, &context, &prompt);
         let cwd = expand_home(profile.cwd);
-        let mut command = Command::new("codex");
+        let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
             .arg(task_prompt)
@@ -973,6 +1014,65 @@ fn merge_attached_context(context: String, attached_context: Option<&str>) -> St
     format!("{context}\n\nAttached terminal output:\n{attached_context}")
 }
 
+fn configured_codex_cli_path() -> Option<String> {
+    read_app_settings().codex_cli_path
+}
+
+fn read_app_settings() -> AppSettings {
+    let Some(path) = app_settings_path() else {
+        return AppSettings::default();
+    };
+    let Ok(content) = fs::read_to_string(path) else {
+        return AppSettings::default();
+    };
+    serde_json::from_str(&content).unwrap_or_default()
+}
+
+fn write_app_settings(settings: &AppSettings) -> Result<(), String> {
+    let path = app_settings_path().ok_or_else(|| "Could not resolve settings path".to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let content = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn app_settings_path() -> Option<PathBuf> {
+    let config_home = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .ok()?;
+    Some(config_home.join("codex-jarvis/settings.json"))
+}
+
+fn normalize_executable_path(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Codex CLI path cannot be empty".to_string());
+    }
+
+    let expanded = if path == "~" {
+        std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        PathBuf::from(home).join(rest).to_string_lossy().to_string()
+    } else {
+        path.to_string()
+    };
+
+    if expanded.contains('/') {
+        let candidate = Path::new(&expanded);
+        if !candidate.exists() {
+            return Err(format!("Codex CLI path does not exist: {expanded}"));
+        }
+        if !candidate.is_file() {
+            return Err(format!("Codex CLI path is not a file: {expanded}"));
+        }
+    }
+
+    Ok(expanded)
+}
+
 fn build_diagnose_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -> String {
     format!(
         "You are assisting with a read-only Linux workstation maintenance task.\n\n\
@@ -1371,6 +1471,7 @@ pub fn run() {
         .manage(TerminalSessions::default())
         .invoke_handler(tauri::generate_handler![
             detect_codex_cli,
+            set_codex_cli_path,
             list_profiles,
             start_diagnose_task,
             start_patch_task,

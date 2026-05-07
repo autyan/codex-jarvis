@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CodexCliInfo } from "../types/codex";
+import type { CodexCliInfo, SetCodexCliPathRequest } from "../types/codex";
 
 export async function detectCodexCli(): Promise<CodexCliInfo> {
   try {
@@ -12,3 +12,6 @@ export async function detectCodexCli(): Promise<CodexCliInfo> {
   }
 }
 
+export async function setCodexCliPath(request: SetCodexCliPathRequest): Promise<CodexCliInfo> {
+  return invoke<CodexCliInfo>("set_codex_cli_path", { request });
+}

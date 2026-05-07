@@ -1,5 +1,6 @@
-import { AlertCircle, CheckCircle2, Copy, RefreshCw, Terminal } from "lucide-react";
-import { useMemo } from "react";
+import { AlertCircle, CheckCircle2, RefreshCw, Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { setCodexCliPath } from "../../api/codex";
 import type { CodexCliInfo, CodexSetupStatus } from "../../types/codex";
 
 type SetupWizardProps = {
@@ -8,15 +9,33 @@ type SetupWizardProps = {
   onDetect: () => void;
 };
 
-const installCommand = "npm install -g @openai/codex";
-
 export function SetupWizard({ info, status, onDetect }: SetupWizardProps) {
+  const [path, setPath] = useState(info?.path ?? "");
+  const [saveError, setSaveError] = useState<string>();
+  const [saving, setSaving] = useState(false);
   const title = useMemo(() => {
     if (status === "checking") return "Checking Codex CLI";
     if (status === "ready") return "Codex CLI Ready";
     if (status === "missing") return "Codex CLI Not Found";
     return "Codex CLI Setup";
   }, [status]);
+
+  useEffect(() => {
+    setPath(info?.path ?? "");
+  }, [info?.path]);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError(undefined);
+    try {
+      await setCodexCliPath({ path });
+      onDetect();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <section className="setup-view">
@@ -34,22 +53,42 @@ export function SetupWizard({ info, status, onDetect }: SetupWizardProps) {
       <div className={status === "ready" ? "setup-status ready" : "setup-status"}>
         {status === "ready" ? <CheckCircle2 size={22} /> : <AlertCircle size={22} />}
         <div>
-          <strong>{status === "ready" ? "Codex CLI is available" : "Codex CLI needs setup"}</strong>
+          <strong>{status === "ready" ? "Codex CLI is available" : "Codex CLI path required"}</strong>
           <p>
             {status === "ready"
-              ? "The app can invoke Codex through the configured command."
-              : "Install Codex CLI or choose a binary path before running tasks."}
+              ? "Jarvis will invoke Codex through the saved executable path."
+              : "Provide a path to a Codex CLI executable or wrapper before running tasks."}
           </p>
         </div>
       </div>
 
       <div className="setup-grid">
         <div className="setup-card">
-          <h3>Detected Binary</h3>
+          <h3>Codex CLI Path</h3>
+          <p>Jarvis does not install or assume a specific Codex CLI distribution. Provide the executable path you want Jarvis to use.</p>
+          <label className="setup-field">
+            <span>Executable path</span>
+            <input
+              placeholder="~/.local/bin/codex-jarvis-cli"
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+            />
+          </label>
+          {saveError ? <p className="setup-error">{saveError}</p> : null}
+          <div className="button-row">
+            <button className="primary action-with-icon" onClick={handleSave} disabled={saving || !path.trim()}>
+              <Save size={16} />
+              Save and verify
+            </button>
+          </div>
+        </div>
+
+        <div className="setup-card">
+          <h3>Current Configuration</h3>
           <dl>
             <div>
               <dt>Path</dt>
-              <dd>{info?.path ?? "Not detected"}</dd>
+              <dd>{info?.path ?? "Not configured"}</dd>
             </div>
             <div>
               <dt>Version</dt>
@@ -61,24 +100,7 @@ export function SetupWizard({ info, status, onDetect }: SetupWizardProps) {
             </div>
           </dl>
         </div>
-
-        <div className="setup-card">
-          <h3>Install Guidance</h3>
-          <p>Run this manually in a terminal if Codex CLI is missing.</p>
-          <code className="command-block">{installCommand}</code>
-          <div className="button-row">
-            <button className="secondary-action">
-              <Copy size={16} />
-              Copy
-            </button>
-            <button className="secondary-action">
-              <Terminal size={16} />
-              Open Terminal
-            </button>
-          </div>
-        </div>
       </div>
     </section>
   );
 }
-

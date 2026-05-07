@@ -5,5 +5,8 @@ export type CodexCliInfo = {
   error?: string;
 };
 
-export type CodexSetupStatus = "idle" | "checking" | "ready" | "missing" | "unavailable";
+export type SetCodexCliPathRequest = {
+  path: string;
+};
 
+export type CodexSetupStatus = "idle" | "checking" | "ready" | "missing" | "unavailable";
