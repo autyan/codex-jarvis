@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { TaskLogLine } from "../../types/task";
 
 type VirtualLogProps = {
@@ -13,7 +13,7 @@ const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]
 
 export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const pendingScrollHeightRef = useRef<number | undefined>(undefined);
   const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
   const detailLogs = useMemo(() => logs.filter((log) => !conversationSources.has(log.source)), [logs]);
   const rowVirtualizer = useVirtualizer({
@@ -23,26 +23,21 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
     overscan: 8,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = parentRef.current;
-    const sentinel = sentinelRef.current;
-    if (!root || !sentinel || !hasOlder) return;
+    const previousScrollHeight = pendingScrollHeightRef.current;
+    if (!root || previousScrollHeight === undefined || isLoadingOlder) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting) && !isLoadingOlder) {
-          onLoadOlder?.();
-        }
-      },
-      {
-        root,
-        rootMargin: "96px 0px 0px 0px",
-        threshold: 0,
-      },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasOlder, isLoadingOlder, onLoadOlder]);
+    root.scrollTop += root.scrollHeight - previousScrollHeight;
+    pendingScrollHeightRef.current = undefined;
+  }, [conversationLogs.length, isLoadingOlder]);
+
+  function loadOlderFromScroll() {
+    const root = parentRef.current;
+    if (!root || !hasOlder || isLoadingOlder) return;
+    pendingScrollHeightRef.current = root.scrollHeight;
+    onLoadOlder?.();
+  }
 
   if (!logs.length) {
     return (
@@ -60,13 +55,12 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
         aria-live="polite"
         onScroll={(event) => {
           if (event.currentTarget.scrollTop < 48 && hasOlder && !isLoadingOlder) {
-            onLoadOlder?.();
+            loadOlderFromScroll();
           }
         }}
       >
         {conversationLogs.length ? (
           <>
-            <div ref={sentinelRef} className="history-window-sentinel" aria-hidden="true" />
             {isLoadingOlder ? <div className="history-window-status">Loading older messages...</div> : null}
             <div
               className="virtual-log-inner"

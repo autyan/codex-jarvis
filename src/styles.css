@@ -825,11 +825,6 @@ textarea {
   width: 100%;
 }
 
-.history-window-sentinel {
-  height: 1px;
-  pointer-events: none;
-}
-
 .history-window-status {
   color: #969696;
   font-size: 12px;
