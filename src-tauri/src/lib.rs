@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
-    io::{BufRead, BufReader},
     io::Write,
+    io::{BufRead, BufReader},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -41,6 +41,14 @@ struct TaskProfile {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartDiagnoseTaskRequest {
+    task_id: Option<String>,
+    profile_id: String,
+    prompt: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartPatchTaskRequest {
     task_id: Option<String>,
     profile_id: String,
     prompt: String,
@@ -94,6 +102,25 @@ struct TaskSummary {
     event_count: usize,
     latest_status: Option<String>,
     latest_preview: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct FileState {
+    hash: u64,
+}
+
+#[derive(Debug, Clone)]
+struct SnapshotEntry {
+    before_path: PathBuf,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangedFile {
+    path: String,
+    status: String,
+    before_hash: Option<String>,
+    after_hash: Option<String>,
 }
 
 #[tauri::command]
@@ -237,6 +264,153 @@ fn start_diagnose_task(
 }
 
 #[tauri::command]
+fn start_patch_task(
+    app: AppHandle,
+    running_tasks: State<'_, RunningTasks>,
+    request: StartPatchTaskRequest,
+) -> Result<StartTaskResponse, String> {
+    let profile = profile_by_id(&request.profile_id)
+        .ok_or_else(|| format!("Unknown profile: {}", request.profile_id))?;
+    let prompt = request.prompt.trim().to_string();
+
+    if prompt.is_empty() {
+        return Err("Prompt cannot be empty".to_string());
+    }
+    if !profile.write_enabled {
+        return Err(format!("Profile {} does not allow writes", profile.name));
+    }
+
+    let task_id = request.task_id.unwrap_or_else(new_task_id);
+    let registry = running_tasks.inner().clone();
+    let app_for_thread = app.clone();
+    let task_id_for_thread = task_id.clone();
+
+    thread::spawn(move || {
+        emit_task_event(
+            &app_for_thread,
+            TaskEvent {
+                task_id: task_id_for_thread.clone(),
+                event: "task_started",
+                text: Some(format!("Starting patch task with {} profile", profile.name)),
+                status: Some("running".to_string()),
+                exit_code: None,
+            },
+        );
+
+        let before_scan = scan_write_paths(&profile);
+        let snapshot = create_before_snapshot(&task_id_for_thread, &before_scan);
+        emit_task_event(
+            &app_for_thread,
+            TaskEvent {
+                task_id: task_id_for_thread.clone(),
+                event: "snapshot_created",
+                text: Some(format!("Captured {} writable files before patch", before_scan.len())),
+                status: Some("snapshot_created".to_string()),
+                exit_code: None,
+            },
+        );
+
+        let context = collect_context(&profile);
+        emit_task_event(
+            &app_for_thread,
+            TaskEvent {
+                task_id: task_id_for_thread.clone(),
+                event: "context_collected",
+                text: Some(context.clone()),
+                status: Some("context_collected".to_string()),
+                exit_code: None,
+            },
+        );
+
+        let task_prompt = build_patch_prompt(&profile, &context, &prompt);
+        let cwd = expand_home(profile.cwd);
+        let mut command = Command::new("codex");
+        command
+            .arg("exec")
+            .arg(task_prompt)
+            .current_dir(cwd)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        match command.spawn() {
+            Ok(mut child) => {
+                let stdout = child.stdout.take();
+                let stderr = child.stderr.take();
+                let child = Arc::new(Mutex::new(child));
+
+                if let Ok(mut tasks) = registry.lock() {
+                    tasks.insert(task_id_for_thread.clone(), child.clone());
+                }
+
+                if let Some(stdout) = stdout {
+                    stream_reader(app_for_thread.clone(), task_id_for_thread.clone(), "stdout", stdout);
+                }
+                if let Some(stderr) = stderr {
+                    stream_reader(app_for_thread.clone(), task_id_for_thread.clone(), "stderr", stderr);
+                }
+
+                loop {
+                    let status = child.lock().ok().and_then(|mut child| child.try_wait().ok()).flatten();
+
+                    if let Some(status) = status {
+                        if let Ok(mut tasks) = registry.lock() {
+                            tasks.remove(&task_id_for_thread);
+                        }
+
+                        let after_scan = scan_write_paths(&profile);
+                        let changed_files = detect_changed_files(&before_scan, &after_scan);
+                        persist_changed_files(&task_id_for_thread, &changed_files);
+                        let diff = generate_task_diff(&snapshot, &changed_files);
+                        persist_task_diff(&task_id_for_thread, &diff);
+
+                        for file in &changed_files {
+                            emit_task_event(
+                                &app_for_thread,
+                                TaskEvent {
+                                    task_id: task_id_for_thread.clone(),
+                                    event: "file_changed",
+                                    text: Some(format!("{} {}", file.status, file.path)),
+                                    status: Some("awaiting_review".to_string()),
+                                    exit_code: None,
+                                },
+                            );
+                        }
+
+                        emit_task_event(
+                            &app_for_thread,
+                            TaskEvent {
+                                task_id: task_id_for_thread.clone(),
+                                event: "diff_ready",
+                                text: Some(format!("{} changed files ready for review", changed_files.len())),
+                                status: Some("awaiting_review".to_string()),
+                                exit_code: status.code(),
+                            },
+                        );
+                        break;
+                    }
+
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+            Err(error) => {
+                emit_task_event(
+                    &app_for_thread,
+                    TaskEvent {
+                        task_id: task_id_for_thread,
+                        event: "task_failed",
+                        text: Some(format!("Failed to start codex exec: {error}")),
+                        status: Some("failed".to_string()),
+                        exit_code: None,
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(StartTaskResponse { task_id })
+}
+
+#[tauri::command]
 fn cancel_task(
     app: AppHandle,
     running_tasks: State<'_, RunningTasks>,
@@ -322,6 +496,31 @@ fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
     summaries.truncate(limit);
 
     Ok(summaries)
+}
+
+#[tauri::command]
+fn list_changed_files(task_id: String) -> Result<Vec<ChangedFile>, String> {
+    let Some(task_dir) = task_data_dir(&task_id) else {
+        return Ok(Vec::new());
+    };
+    let path = task_dir.join("changed-files.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&content).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_task_diff(task_id: String) -> Result<String, String> {
+    let Some(task_dir) = task_data_dir(&task_id) else {
+        return Ok(String::new());
+    };
+    let path = task_dir.join("diff.patch");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(path).map_err(|error| error.to_string())
 }
 
 fn profiles() -> Vec<TaskProfile> {
@@ -511,6 +710,42 @@ User task:\n{user_prompt}",
     )
 }
 
+fn build_patch_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -> String {
+    format!(
+        "You are assisting with a Linux workstation maintenance patch task.\n\n\
+Task profile:\n\
+- Name: {name}\n\
+- Working directory: {cwd}\n\
+- Mode: patch\n\
+- Writable paths:\n{write_paths}\n\
+- Forbidden paths:\n{deny_paths}\n\n\
+Rules:\n\
+1. Modify only writable paths listed above.\n\
+2. Do not modify forbidden paths.\n\
+3. Do not run sudo.\n\
+4. Do not run destructive commands.\n\
+5. Prefer minimal changes.\n\
+6. Explain every file change.\n\
+7. If privileged operations are needed, only suggest commands; do not execute them.\n\n\
+Collected context:\n{context}\n\n\
+User task:\n{user_prompt}",
+        name = profile.name,
+        cwd = profile.cwd,
+        write_paths = profile
+            .write_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        deny_paths = profile
+            .deny_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 fn expand_home(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("$HOME") {
         if let Some(home) = std::env::var_os("HOME") {
@@ -617,6 +852,158 @@ fn append_file(path: PathBuf, text: &str) {
     }
 }
 
+fn scan_write_paths(profile: &TaskProfile) -> HashMap<String, FileState> {
+    let mut files = HashMap::new();
+    for path in &profile.write_paths {
+        collect_file_states(PathBuf::from(expand_home(path)), &mut files);
+    }
+    files
+}
+
+fn collect_file_states(path: PathBuf, files: &mut HashMap<String, FileState>) {
+    if path.is_file() {
+        if let Ok(content) = fs::read(&path) {
+            files.insert(
+                path.to_string_lossy().to_string(),
+                FileState {
+                    hash: stable_hash(&content),
+                },
+            );
+        }
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        collect_file_states(entry.path(), files);
+    }
+}
+
+fn create_before_snapshot(task_id: &str, before_scan: &HashMap<String, FileState>) -> HashMap<String, SnapshotEntry> {
+    let mut snapshots = HashMap::new();
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return snapshots;
+    };
+    let before_dir = task_dir.join("snapshots/before");
+    let _ = fs::create_dir_all(&before_dir);
+
+    for path in before_scan.keys() {
+        let source = PathBuf::from(path);
+        let target = before_dir.join(safe_snapshot_name(path));
+        if fs::copy(&source, &target).is_ok() {
+            snapshots.insert(path.clone(), SnapshotEntry { before_path: target });
+        }
+    }
+
+    snapshots
+}
+
+fn detect_changed_files(
+    before: &HashMap<String, FileState>,
+    after: &HashMap<String, FileState>,
+) -> Vec<ChangedFile> {
+    let mut changed = Vec::new();
+
+    for (path, before_state) in before {
+        match after.get(path) {
+            Some(after_state) if after_state.hash != before_state.hash => changed.push(ChangedFile {
+                path: path.clone(),
+                status: "modified".to_string(),
+                before_hash: Some(before_state.hash.to_string()),
+                after_hash: Some(after_state.hash.to_string()),
+            }),
+            None => changed.push(ChangedFile {
+                path: path.clone(),
+                status: "deleted".to_string(),
+                before_hash: Some(before_state.hash.to_string()),
+                after_hash: None,
+            }),
+            _ => {}
+        }
+    }
+
+    for (path, after_state) in after {
+        if !before.contains_key(path) {
+            changed.push(ChangedFile {
+                path: path.clone(),
+                status: "created".to_string(),
+                before_hash: None,
+                after_hash: Some(after_state.hash.to_string()),
+            });
+        }
+    }
+
+    changed.sort_by(|left, right| left.path.cmp(&right.path));
+    changed
+}
+
+fn generate_task_diff(snapshots: &HashMap<String, SnapshotEntry>, changed_files: &[ChangedFile]) -> String {
+    let mut patch = String::new();
+
+    for file in changed_files {
+        let old_path = snapshots
+            .get(&file.path)
+            .map(|snapshot| snapshot.before_path.to_string_lossy().to_string())
+            .unwrap_or_else(|| "/dev/null".to_string());
+        let new_path = if file.status == "deleted" {
+            "/dev/null".to_string()
+        } else {
+            file.path.clone()
+        };
+
+        match Command::new("diff").arg("-u").arg(&old_path).arg(&new_path).output() {
+            Ok(output) => {
+                patch.push_str(&format!("\n# {}\n", file.path));
+                patch.push_str(&String::from_utf8_lossy(&output.stdout));
+                patch.push_str(&String::from_utf8_lossy(&output.stderr));
+            }
+            Err(error) => {
+                patch.push_str(&format!("\n# {}\nfailed to generate diff: {}\n", file.path, error));
+            }
+        }
+    }
+
+    patch
+}
+
+fn persist_changed_files(task_id: &str, changed_files: &[ChangedFile]) {
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&task_dir);
+    if let Ok(content) = serde_json::to_string_pretty(changed_files) {
+        let _ = fs::write(task_dir.join("changed-files.json"), content);
+    }
+}
+
+fn persist_task_diff(task_id: &str, diff: &str) {
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&task_dir);
+    let _ = fs::write(task_dir.join("diff.patch"), diff);
+}
+
+fn safe_snapshot_name(path: &str) -> String {
+    path.chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => character,
+        })
+        .collect()
+}
+
+fn stable_hash(content: &[u8]) -> u64 {
+    let mut hash = 14695981039346656037u64;
+    for byte in content {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash
+}
+
 fn next_event_sequence(task_dir: &std::path::Path) -> u64 {
     fs::read_to_string(task_dir.join("events.jsonl"))
         .map(|content| content.lines().count() as u64)
@@ -680,9 +1067,12 @@ pub fn run() {
             detect_codex_cli,
             list_profiles,
             start_diagnose_task,
+            start_patch_task,
             cancel_task,
             list_task_events,
-            list_recent_tasks
+            list_recent_tasks,
+            list_changed_files,
+            get_task_diff
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Codex Jarvis");

@@ -1,12 +1,23 @@
 export type TaskMode = "diagnose" | "patch" | "suggest_commands";
 
-export type TaskStatus = "idle" | "starting" | "running" | "context_collected" | "finished" | "failed" | "cancelled";
+export type TaskStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "snapshot_created"
+  | "context_collected"
+  | "awaiting_review"
+  | "finished"
+  | "failed"
+  | "cancelled";
 
 export type StartDiagnoseTaskRequest = {
   taskId?: string;
   profileId: string;
   prompt: string;
 };
+
+export type StartPatchTaskRequest = StartDiagnoseTaskRequest;
 
 export type StartTaskResponse = {
   taskId: string;
@@ -17,8 +28,11 @@ export type TaskEvent = {
   event:
     | "task_started"
     | "context_collected"
+    | "snapshot_created"
     | "stdout"
     | "stderr"
+    | "file_changed"
+    | "diff_ready"
     | "task_finished"
     | "task_failed"
     | "task_cancelled";
@@ -59,4 +73,11 @@ export type TaskSummary = {
   eventCount: number;
   latestStatus?: TaskStatus;
   latestPreview?: string;
+};
+
+export type ChangedFile = {
+  path: string;
+  status: "created" | "modified" | "deleted";
+  beforeHash?: string;
+  afterHash?: string;
 };

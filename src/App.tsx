@@ -5,7 +5,6 @@ import {
   History,
   PanelRight,
   Settings,
-  ShieldCheck,
   Sparkles,
   Terminal,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { detectCodexCli } from "./api/codex";
 import { HistoryView } from "./components/history/HistoryView";
+import { ReviewView } from "./components/review/ReviewView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { profiles } from "./data/profiles";
@@ -31,6 +31,7 @@ const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{
 export function App() {
   const [activeProfileId, setActiveProfileId] = useState("shell");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
+  const [activeTaskId, setActiveTaskId] = useState<string>();
   const codexQuery = useQuery({
     queryKey: ["codex-cli"],
     queryFn: detectCodexCli,
@@ -114,6 +115,8 @@ export function App() {
           setupStatus={setupStatus}
           codexInfo={codexQuery.data}
           onDetectCodex={() => void codexQuery.refetch()}
+          activeTaskId={activeTaskId}
+          onTaskStarted={(taskId) => setActiveTaskId(taskId)}
         />
       </main>
 
@@ -206,12 +209,16 @@ function Workspace({
   setupStatus,
   codexInfo,
   onDetectCodex,
+  activeTaskId,
+  onTaskStarted,
 }: {
   activeTab: WorkspaceTab;
   profile: TaskProfile;
   setupStatus: CodexSetupStatus;
   codexInfo?: Parameters<typeof SetupWizard>[0]["info"];
   onDetectCodex: () => void;
+  activeTaskId?: string;
+  onTaskStarted: (taskId: string) => void;
 }) {
   if (activeTab === "setup") {
     return <SetupWizard info={codexInfo} status={setupStatus} onDetect={onDetectCodex} />;
@@ -234,23 +241,12 @@ $ `}</pre>
   }
 
   if (activeTab === "review") {
-    return (
-      <section className="workspace-panel">
-        <div className="section-heading">
-          <h2>Review Changes</h2>
-          <span>Awaiting patch task</span>
-        </div>
-        <div className="empty-state">
-          <ShieldCheck size={32} />
-          <p>Run a patch task to review changed files, diffs, and rollback options.</p>
-        </div>
-      </section>
-    );
+    return <ReviewView taskId={activeTaskId} />;
   }
 
   if (activeTab === "history") {
     return <HistoryView />;
   }
 
-  return <TaskRunner profile={profile} />;
+  return <TaskRunner profile={profile} onTaskStarted={onTaskStarted} />;
 }

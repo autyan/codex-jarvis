@@ -1,25 +1,28 @@
 import { listen } from "@tauri-apps/api/event";
 import { Ban, Play, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cancelTask, startDiagnoseTask } from "../../api/tasks";
+import { cancelTask, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
-import type { TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+import type { TaskEvent, TaskLogLine, TaskMode, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
   profile: TaskProfile;
+  onTaskStarted: (taskId: string) => void;
 };
 
 const defaultPrompt = "Check whether my shell PATH is configured cleanly.";
 
-export function TaskRunner({ profile }: TaskRunnerProps) {
+export function TaskRunner({ profile, onTaskStarted }: TaskRunnerProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [mode, setMode] = useState<TaskMode>("diagnose");
   const [taskId, setTaskId] = useState<string>();
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
   const activeTaskIdRef = useRef<string | undefined>(undefined);
-  const canRun = prompt.trim().length > 0 && status !== "starting" && status !== "running";
-  const canCancel = Boolean(taskId) && (status === "starting" || status === "running" || status === "context_collected");
+  const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
+  const canRun = prompt.trim().length > 0 && !isActive;
+  const canCancel = Boolean(taskId) && isActive;
 
   useEffect(() => {
     let isMounted = true;
@@ -53,6 +56,8 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
 
   const statusLabel = useMemo(() => {
     if (status === "context_collected") return "Context collected";
+    if (status === "snapshot_created") return "Snapshot created";
+    if (status === "awaiting_review") return "Awaiting review";
     return status[0].toUpperCase() + status.slice(1);
   }, [status]);
 
@@ -60,6 +65,7 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
     const nextTaskId = `task_${Date.now()}`;
     activeTaskIdRef.current = nextTaskId;
     setTaskId(nextTaskId);
+    onTaskStarted(nextTaskId);
     setStatus("starting");
     setLogs([
       {
@@ -70,11 +76,12 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
     ]);
 
     try {
-      const response = await startDiagnoseTask({
+      const request = {
         taskId: nextTaskId,
         profileId: profile.id,
         prompt,
-      });
+      };
+      const response = mode === "patch" ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
       setStatus("running");
     } catch (error) {
@@ -129,8 +136,21 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
       </label>
 
+      <div className="mode-selector" aria-label="Task mode">
+        <button className={mode === "diagnose" ? "active" : ""} onClick={() => setMode("diagnose")}>
+          Diagnose
+        </button>
+        <button
+          className={mode === "patch" ? "active" : ""}
+          onClick={() => setMode("patch")}
+          disabled={!profile.writeEnabled}
+        >
+          Patch
+        </button>
+      </div>
+
       <div className="button-row">
-        <button className="secondary-action" onClick={resetTask} disabled={status === "running"}>
+        <button className="secondary-action" onClick={resetTask} disabled={isActive}>
           <RotateCcw size={16} />
           Reset
         </button>
@@ -140,7 +160,7 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
         </button>
         <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
           <Play size={16} />
-          Run Diagnose
+          Run {mode === "patch" ? "Patch" : "Diagnose"}
         </button>
       </div>
 

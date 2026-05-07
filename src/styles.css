@@ -282,6 +282,34 @@ textarea {
   resize: vertical;
 }
 
+.mode-selector {
+  background: #ebe7df;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 4px;
+}
+
+.mode-selector button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #53605b;
+  padding: 7px 12px;
+}
+
+.mode-selector button.active {
+  background: #fbfaf7;
+  color: #1f2b27;
+}
+
+.mode-selector button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .button-row {
   gap: 8px;
   margin: 14px 0;
@@ -455,10 +483,66 @@ textarea {
 
 .status-running,
 .status-context_collected,
+.status-snapshot_created,
+.status-awaiting_review,
 .status-starting {
   background: #e9f2ef;
   border-color: #b9d2c9;
   color: #1f6b5d;
+}
+
+.review-layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.changed-files {
+  border-right: 1px solid #ded8ce;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  padding-right: 12px;
+}
+
+.changed-files h3 {
+  margin: 0 0 6px;
+}
+
+.changed-file {
+  background: #f3eee5;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.changed-file strong {
+  color: #1f6b5d;
+  text-transform: uppercase;
+}
+
+.changed-file.status-deleted strong {
+  color: #8a4b1f;
+}
+
+.changed-file span {
+  color: #4e5a55;
+  overflow-wrap: anywhere;
+}
+
+.diff-viewer {
+  background: #141a18;
+  border-radius: 8px;
+  color: #dce7e2;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  height: calc(100vh - 170px);
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre;
 }
 
 .status-failed,

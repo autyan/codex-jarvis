@@ -124,6 +124,8 @@ cargo test
 
 ## Stage 5 — Patch Mode Snapshots and Diff Review
 
+Status: complete
+
 Goal:
 
 - allow scoped user-level file changes with visible review.
