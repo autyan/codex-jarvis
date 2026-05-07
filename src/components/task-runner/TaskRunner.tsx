@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, ChevronDown, ChevronRight, FileDiff, Gauge, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { cancelTask, getTaskProposal, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { AppSettings } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
@@ -44,7 +44,9 @@ export function TaskRunner({
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolTab>("proposal");
   const [contextSnapshots, setContextSnapshots] = useState<ContextSnapshot[]>([]);
+  const [composerMenu, setComposerMenu] = useState<{ x: number; y: number }>();
   const activeTaskIdRef = useRef<string | undefined>(undefined);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
@@ -161,6 +163,25 @@ export function TaskRunner({
     void loadLatestEvents(selectedTaskId);
   }, [loadLatestEvents, selectedTaskId]);
 
+  useEffect(() => {
+    if (!composerMenu) return;
+
+    function closeMenu() {
+      setComposerMenu(undefined);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMenu();
+    }
+
+    window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [composerMenu]);
+
   const statusLabel = useMemo(() => {
     if (status === "context_collected") return "Context collected";
     if (status === "snapshot_created") return "Snapshot created";
@@ -244,6 +265,48 @@ export function TaskRunner({
     }
   }
 
+  function openComposerMenu(event: MouseEvent<HTMLTextAreaElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    promptRef.current = event.currentTarget;
+    setComposerMenu({ x: event.clientX, y: event.clientY });
+  }
+
+  async function copyPromptSelection() {
+    const textarea = promptRef.current;
+    if (!textarea) return;
+    const selection = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
+    if (selection) await writeClipboardText(selection);
+    textarea.focus();
+    setComposerMenu(undefined);
+  }
+
+  async function pasteIntoPrompt() {
+    const textarea = promptRef.current;
+    if (!textarea) return;
+    const text = await readClipboardText();
+    if (!text) {
+      textarea.focus();
+      setComposerMenu(undefined);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const nextPrompt = `${prompt.slice(0, start)}${text}${prompt.slice(end)}`;
+    setPrompt(nextPrompt);
+    writePromptDraft(taskId, nextPrompt);
+    requestAnimationFrame(() => {
+      const cursor = start + text.length;
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    });
+    setComposerMenu(undefined);
+  }
+
+  const hasPromptSelection = Boolean(
+    promptRef.current && promptRef.current.selectionEnd > promptRef.current.selectionStart,
+  );
+
   return (
     <section className="workspace-panel task-runner chat-workspace">
       <div className="chat-main">
@@ -277,8 +340,10 @@ export function TaskRunner({
           <label className="prompt-box">
             <span>Message</span>
             <textarea
+              ref={promptRef}
               placeholder="Ask Codex to inspect, explain, change, or continue this workspace..."
               value={prompt}
+              onContextMenu={openComposerMenu}
               onChange={(event) => {
                 const nextPrompt = event.target.value;
                 setPrompt(nextPrompt);
@@ -286,6 +351,20 @@ export function TaskRunner({
               }}
             />
           </label>
+          {composerMenu ? (
+            <div
+              className="terminal-context-menu composer-context-menu"
+              style={{ left: composerMenu.x, top: composerMenu.y }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <button onClick={() => void copyPromptSelection()} disabled={!hasPromptSelection}>
+                Copy
+              </button>
+              <button onClick={() => void pasteIntoPrompt()}>
+                Paste
+              </button>
+            </div>
+          ) : null}
 
           <div className="composer-actions">
             <label className={directExecute ? "direct-execute-toggle active" : "direct-execute-toggle"}>
@@ -779,6 +858,30 @@ function compactTranscriptText(text: string) {
   const limit = 3000;
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}\n[truncated]`;
+}
+
+async function readClipboardText() {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return "";
+  }
+}
+
+async function writeClipboardText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textArea);
+  }
 }
 
 function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
