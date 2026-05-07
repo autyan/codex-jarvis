@@ -299,43 +299,47 @@ function SessionGroup({
             aria-current={task.taskId === activeTaskId ? "page" : undefined}
             onClick={() => onSelect(task.taskId)}
           >
-            <span>{task.title ?? task.taskId}</span>
-            <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
-            <span
-              className="pin-control"
-              role="button"
-              tabIndex={0}
-              onClick={(event) => {
-                event.stopPropagation();
-                onTogglePin(task.taskId);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
+            <span className="session-copy">
+              <span>{task.title ?? task.taskId}</span>
+              <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
+            </span>
+            <span className="session-actions">
+              <span
+                className="pin-control"
+                role="button"
+                tabIndex={0}
+                onClick={(event) => {
                   event.stopPropagation();
                   onTogglePin(task.taskId);
-                }
-              }}
-            >
-              {pinnedTaskIds.includes(task.taskId) ? <PinOff size={14} /> : <Pin size={14} />}
-            </span>
-            <span
-              className="delete-control"
-              role="button"
-              tabIndex={0}
-              onClick={(event) => {
-                event.stopPropagation();
-                onDelete(task.taskId);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onTogglePin(task.taskId);
+                  }
+                }}
+              >
+                {pinnedTaskIds.includes(task.taskId) ? <PinOff size={14} /> : <Pin size={14} />}
+              </span>
+              <span
+                className="delete-control"
+                role="button"
+                tabIndex={0}
+                onClick={(event) => {
                   event.stopPropagation();
                   onDelete(task.taskId);
-                }
-              }}
-            >
-              <Trash2 size={14} />
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onDelete(task.taskId);
+                  }
+                }}
+              >
+                <Trash2 size={14} />
+              </span>
             </span>
           </button>
         ))}

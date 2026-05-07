@@ -243,42 +243,53 @@ input {
 }
 
 .session-item {
-  position: relative;
+  align-items: start;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 36px;
 }
 
-.session-item span:first-child {
+.session-copy {
+  display: block;
+  min-width: 0;
+}
+
+.session-copy span {
   display: block;
   overflow: hidden;
-  padding-right: 44px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-item.active span:first-child {
+.session-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item.active .session-copy span {
   color: #ffffff;
   font-weight: 600;
 }
 
-.session-item.active small {
+.session-item.active .session-copy small {
   color: #c5c5c5;
 }
 
-.pin-control {
+.session-actions {
   align-items: center;
-  color: #969696;
   display: inline-flex;
-  position: absolute;
-  right: 7px;
-  top: 6px;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
+.pin-control,
 .delete-control {
   align-items: center;
   color: #969696;
   display: inline-flex;
-  position: absolute;
-  right: 26px;
-  top: 6px;
+  flex: 0 0 auto;
 }
 
 .delete-control:hover {
