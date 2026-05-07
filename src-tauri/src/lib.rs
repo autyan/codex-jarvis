@@ -175,6 +175,13 @@ struct RollbackResult {
     skipped: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApplyReviewResult {
+    task_id: String,
+    accepted: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartTerminalRequest {
@@ -704,6 +711,36 @@ fn read_changed_file(task_id: String, path: String) -> Result<ChangedFileContent
         path: file.path.clone(),
         content,
     })
+}
+
+#[tauri::command]
+fn apply_task_review(app: AppHandle, task_id: String) -> Result<ApplyReviewResult, String> {
+    let changed_files = list_changed_files(task_id.clone())?;
+    let Some(task_dir) = task_data_dir(&task_id) else {
+        return Err("Task data directory is unavailable".to_string());
+    };
+
+    let result = ApplyReviewResult {
+        task_id: task_id.clone(),
+        accepted: changed_files.iter().map(|file| file.path.clone()).collect(),
+    };
+    let log = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("apply.json"), log).map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("changed-files.json"), "[]").map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("diff.patch"), "").map_err(|error| error.to_string())?;
+
+    emit_task_event(
+        &app,
+        TaskEvent {
+            task_id,
+            event: "task_finished",
+            text: Some(format!("Review applied with {} accepted files", result.accepted.len())),
+            status: Some("finished".to_string()),
+            exit_code: None,
+        },
+    );
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1806,6 +1843,7 @@ pub fn run() {
             list_changed_files,
             get_task_diff,
             read_changed_file,
+            apply_task_review,
             rollback_task,
             start_terminal,
             write_terminal,

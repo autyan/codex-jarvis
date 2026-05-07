@@ -95,3 +95,8 @@ export type RollbackResult = {
   deleted: string[];
   skipped: string[];
 };
+
+export type ApplyReviewResult = {
+  taskId: string;
+  accepted: string[];
+};

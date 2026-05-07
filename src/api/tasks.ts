@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ApplyReviewResult,
   ChangedFile,
   ChangedFileContent,
   RollbackResult,
@@ -44,6 +45,10 @@ export function getTaskDiff(taskId: string) {
 
 export function readChangedFile(taskId: string, path: string) {
   return invoke<ChangedFileContent>("read_changed_file", { taskId, path });
+}
+
+export function applyTaskReview(taskId: string) {
+  return invoke<ApplyReviewResult>("apply_task_review", { taskId });
 }
 
 export function rollbackTask(taskId: string) {

@@ -987,12 +987,23 @@ textarea {
   color: #f0cf8a;
 }
 
+.review-action.apply-review-action {
+  border-color: #2f6f61;
+  color: #4ec9b0;
+}
+
+.review-action.apply-review-action:hover:not(:disabled) {
+  background: #1f2f2f;
+  border-color: #3f8375;
+  color: #7ee2ca;
+}
+
 .review-action.compact {
   min-height: 24px;
   padding: 3px 8px;
 }
 
-.rollback-banner {
+.review-banner {
   align-items: center;
   background: #1f2f2f;
   border: 1px solid #315f5a;
@@ -1004,7 +1015,7 @@ textarea {
   padding: 10px 12px;
 }
 
-.rollback-banner.error {
+.review-banner.error {
   background: #f6e9df;
   border-color: #dfc1a9;
   color: #8a4b1f;

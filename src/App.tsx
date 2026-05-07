@@ -250,7 +250,7 @@ export function App() {
 
       {reviewOpen ? (
         <Modal title="Review" onClose={() => setReviewOpen(false)}>
-          <ReviewView taskId={activeTaskId} />
+          <ReviewView taskId={activeTaskId} onClose={() => setReviewOpen(false)} />
         </Modal>
       ) : null}
     </div>

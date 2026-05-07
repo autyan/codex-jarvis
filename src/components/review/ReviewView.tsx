@@ -1,15 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { FileDiff, RefreshCw, RotateCcw } from "lucide-react";
+import { CheckCircle2, FileDiff, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { getTaskDiff, listChangedFiles, readChangedFile, rollbackTask } from "../../api/tasks";
-import type { ChangedFile } from "../../types/task";
-import type { RollbackResult } from "../../types/task";
+import { applyTaskReview, getTaskDiff, listChangedFiles, readChangedFile, rollbackTask } from "../../api/tasks";
+import type { ApplyReviewResult, RollbackResult } from "../../types/task";
 
 type ReviewViewProps = {
   taskId?: string;
+  onClose: () => void;
 };
 
-export function ReviewView({ taskId }: ReviewViewProps) {
+export function ReviewView({ taskId, onClose }: ReviewViewProps) {
+  const [applyResult, setApplyResult] = useState<ApplyReviewResult>();
+  const [applyError, setApplyError] = useState<string>();
+  const [isApplying, setIsApplying] = useState(false);
   const [rollbackResult, setRollbackResult] = useState<RollbackResult>();
   const [rollbackError, setRollbackError] = useState<string>();
   const [isRollingBack, setIsRollingBack] = useState(false);
@@ -71,6 +74,23 @@ export function ReviewView({ taskId }: ReviewViewProps) {
     }
   }
 
+  async function handleApply() {
+    if (!taskId) return;
+    setIsApplying(true);
+    setApplyError(undefined);
+    try {
+      const result = await applyTaskReview(taskId);
+      setApplyResult(result);
+      await changedFilesQuery.refetch();
+      await diffQuery.refetch();
+      setSelectedPath(undefined);
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
   if (!taskId) {
     return (
       <section className="workspace-panel">
@@ -78,6 +98,10 @@ export function ReviewView({ taskId }: ReviewViewProps) {
           <h2>Review Changes</h2>
           <span>Awaiting patch task</span>
         </div>
+        <button className="review-action" onClick={onClose}>
+          <X size={14} />
+          Close
+        </button>
         <div className="empty-state">
           <FileDiff size={32} />
           <p>Run a patch task to review changed files, diffs, and rollback options.</p>
@@ -98,15 +122,30 @@ export function ReviewView({ taskId }: ReviewViewProps) {
             <RefreshCw size={14} />
             Refresh
           </button>
+          <button className="review-action apply-review-action" onClick={handleApply} disabled={isApplying || changedFiles.length === 0}>
+            <CheckCircle2 size={14} />
+            Apply
+          </button>
           <button className="review-action rollback-action" onClick={handleRollback} disabled={isRollingBack}>
             <RotateCcw size={14} />
             Rollback
           </button>
+          <button className="review-action" onClick={onClose}>
+            <X size={14} />
+            Close
+          </button>
         </div>
       </div>
 
+      {applyResult ? (
+        <div className="review-banner">
+          <strong>Apply complete</strong>
+          <span>accepted {applyResult.accepted.length} files</span>
+        </div>
+      ) : null}
+      {applyError ? <div className="review-banner error">{applyError}</div> : null}
       {rollbackResult ? (
-        <div className="rollback-banner">
+        <div className="review-banner">
           <strong>Rollback complete</strong>
           <span>
             restored {rollbackResult.restored.length}, deleted {rollbackResult.deleted.length}, skipped{" "}
@@ -114,7 +153,7 @@ export function ReviewView({ taskId }: ReviewViewProps) {
           </span>
         </div>
       ) : null}
-      {rollbackError ? <div className="rollback-banner error">{rollbackError}</div> : null}
+      {rollbackError ? <div className="review-banner error">{rollbackError}</div> : null}
 
       <div className="review-layout">
         <aside className="changed-files">
