@@ -71,6 +71,7 @@ export type TaskEventPage = {
 
 export type TaskSummary = {
   taskId: string;
+  title?: string;
   updatedAt: number;
   eventCount: number;
   latestStatus?: TaskStatus;

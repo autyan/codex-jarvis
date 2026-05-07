@@ -120,6 +120,7 @@ struct TaskEventPage {
 #[serde(rename_all = "camelCase")]
 struct TaskSummary {
     task_id: String,
+    title: Option<String>,
     updated_at: u128,
     event_count: usize,
     latest_status: Option<String>,
@@ -251,6 +252,7 @@ fn start_diagnose_task(
 
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
+    persist_task_title_if_missing(&task_id, &prompt);
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
@@ -285,8 +287,12 @@ fn start_diagnose_task(
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
+            .arg("--skip-git-repo-check")
+            .arg("--sandbox")
+            .arg("read-only")
             .arg(task_prompt)
             .current_dir(cwd)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -314,13 +320,14 @@ fn start_diagnose_task(
                         if let Ok(mut tasks) = registry.lock() {
                             tasks.remove(&task_id_for_thread);
                         }
+                        let success = status.success();
                         emit_task_event(
                             &app_for_thread,
                             TaskEvent {
                                 task_id: task_id_for_thread,
-                                event: "task_finished",
-                                text: Some("Diagnose task finished".to_string()),
-                                status: Some("finished".to_string()),
+                                event: if success { "task_finished" } else { "task_failed" },
+                                text: Some(if success { "Diagnose task finished" } else { "Diagnose task failed" }.to_string()),
+                                status: Some(if success { "finished" } else { "failed" }.to_string()),
                                 exit_code: status.code(),
                             },
                         );
@@ -367,6 +374,7 @@ fn start_patch_task(
 
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
+    persist_task_title_if_missing(&task_id, &prompt);
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
@@ -414,8 +422,16 @@ fn start_patch_task(
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
+            .arg("--skip-git-repo-check")
+            .arg("--sandbox")
+            .arg("workspace-write");
+        for path in &profile.write_paths {
+            command.arg("--add-dir").arg(codex_add_dir_path(path));
+        }
+        command
             .arg(task_prompt)
             .current_dir(cwd)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -444,6 +460,7 @@ fn start_patch_task(
                             tasks.remove(&task_id_for_thread);
                         }
 
+                        let success = status.success();
                         let after_scan = scan_write_paths(&profile);
                         let changed_files = detect_changed_files(&before_scan, &after_scan);
                         persist_changed_files(&task_id_for_thread, &changed_files);
@@ -467,9 +484,13 @@ fn start_patch_task(
                             &app_for_thread,
                             TaskEvent {
                                 task_id: task_id_for_thread.clone(),
-                                event: "diff_ready",
-                                text: Some(format!("{} changed files ready for review", changed_files.len())),
-                                status: Some("awaiting_review".to_string()),
+                                event: if success { "diff_ready" } else { "task_failed" },
+                                text: Some(if success {
+                                    format!("{} changed files ready for review", changed_files.len())
+                                } else {
+                                    "Patch task failed".to_string()
+                                }),
+                                status: Some(if success { "awaiting_review" } else { "failed" }.to_string()),
                                 exit_code: status.code(),
                             },
                         );
@@ -572,6 +593,7 @@ fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
 
         summaries.push(TaskSummary {
             task_id,
+            title: read_task_title(&entry.path()),
             updated_at,
             event_count: events.len(),
             latest_status: latest.and_then(|event| event.status.clone()),
@@ -583,6 +605,15 @@ fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
     summaries.truncate(limit);
 
     Ok(summaries)
+}
+
+#[tauri::command]
+fn delete_task(task_id: String) -> Result<(), String> {
+    let task_dir = task_data_dir(&task_id).ok_or_else(|| "Could not resolve task data directory".to_string())?;
+    if !task_dir.exists() {
+        return Ok(());
+    }
+    fs::remove_dir_all(task_dir).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -848,7 +879,7 @@ fn profiles() -> Vec<TaskProfile> {
             name: "General",
             description: "Read-only workstation diagnostics and general context collection.",
             default_mode: "diagnose",
-            cwd: "$HOME",
+            cwd: "$JARVIS_WORKSPACE",
             write_enabled: false,
             snapshot_required: false,
             read_paths: vec!["$HOME", "$HOME/.config"],
@@ -882,7 +913,7 @@ fn profiles() -> Vec<TaskProfile> {
             name: "Shell",
             description: "Shell configuration, aliases, PATH, and environment variables.",
             default_mode: "patch",
-            cwd: "$HOME",
+            cwd: "$JARVIS_WORKSPACE",
             write_enabled: true,
             snapshot_required: true,
             read_paths: vec![
@@ -908,19 +939,14 @@ fn profiles() -> Vec<TaskProfile> {
                 "/boot",
                 "/var",
             ],
-            readonly_commands: vec![
-                "echo $SHELL",
-                "echo $PATH",
-                "ls -la $HOME",
-                "ls -la $HOME/.config/environment.d",
-            ],
+            readonly_commands: vec!["echo $SHELL", "echo $PATH", "test -d $HOME/.config/environment.d && ls -la $HOME/.config/environment.d || true"],
         },
         TaskProfile {
             id: "scripts",
             name: "Scripts",
             description: "Personal scripts and user-owned automation under local paths.",
             default_mode: "patch",
-            cwd: "$HOME",
+            cwd: "$JARVIS_WORKSPACE",
             write_enabled: true,
             snapshot_required: true,
             read_paths: vec!["$HOME/.local/bin", "$HOME/Scripts"],
@@ -941,7 +967,7 @@ fn profiles() -> Vec<TaskProfile> {
             name: "systemd User",
             description: "User-level systemd service diagnostics and unit files.",
             default_mode: "patch",
-            cwd: "$HOME/.config/systemd/user",
+            cwd: "$JARVIS_WORKSPACE",
             write_enabled: true,
             snapshot_required: true,
             read_paths: vec!["$HOME/.config/systemd/user"],
@@ -1138,12 +1164,29 @@ User task:\n{user_prompt}",
 }
 
 fn expand_home(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("$JARVIS_WORKSPACE") {
+        if let Some(workspace) = workspace_data_dir() {
+            return format!("{}{}", workspace.to_string_lossy(), rest);
+        }
+    }
     if let Some(rest) = path.strip_prefix("$HOME") {
         if let Some(home) = std::env::var_os("HOME") {
             return format!("{}{}", home.to_string_lossy(), rest);
         }
     }
     path.to_string()
+}
+
+fn codex_add_dir_path(path: &str) -> String {
+    let expanded = PathBuf::from(expand_home(path));
+    if expanded.is_file() {
+        expanded
+            .parent()
+            .map(|parent| parent.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded.to_string_lossy().to_string())
+    } else {
+        expanded.to_string_lossy().to_string()
+    }
 }
 
 fn stream_reader<R>(app: AppHandle, task_id: String, event: &'static str, reader: R)
@@ -1237,8 +1280,71 @@ fn task_data_dir(task_id: &str) -> Option<PathBuf> {
 }
 
 fn tasks_data_dir() -> Option<PathBuf> {
+    Some(app_data_dir()?.join("tasks"))
+}
+
+fn workspace_data_dir() -> Option<PathBuf> {
+    Some(app_data_dir()?.join("workspace"))
+}
+
+fn app_data_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".local/share/codex-jarvis/tasks"))
+    Some(PathBuf::from(home).join(".local/share/codex-jarvis"))
+}
+
+fn ensure_app_workspace() -> Result<(), String> {
+    let data_dir = app_data_dir().ok_or_else(|| "HOME is not set".to_string())?;
+    let workspace_dir = workspace_data_dir().ok_or_else(|| "HOME is not set".to_string())?;
+    fs::create_dir_all(data_dir.join("tasks")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(data_dir.join("snapshots")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(data_dir.join("terminal")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&workspace_dir).map_err(|error| error.to_string())?;
+
+    if !workspace_dir.join(".git").exists() {
+        let _ = Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .current_dir(&workspace_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    Ok(())
+}
+
+fn persist_task_title_if_missing(task_id: &str, prompt: &str) {
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&task_dir);
+    let title_path = task_dir.join("title.txt");
+    if title_path.exists() {
+        return;
+    }
+    let title = session_title_from_prompt(prompt);
+    let _ = fs::write(title_path, title);
+}
+
+fn read_task_title(task_dir: &Path) -> Option<String> {
+    fs::read_to_string(task_dir.join("title.txt"))
+        .ok()
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+}
+
+fn session_title_from_prompt(prompt: &str) -> String {
+    let compact = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut title = compact.chars().take(32).collect::<String>();
+    if compact.chars().count() > 32 {
+        title.push_str("...");
+    }
+    if title.is_empty() {
+        "New session".to_string()
+    } else {
+        title
+    }
 }
 
 fn append_file(path: PathBuf, text: &str) {
@@ -1469,6 +1575,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(RunningTasks::default())
         .manage(TerminalSessions::default())
+        .setup(|_| {
+            ensure_app_workspace()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             detect_codex_cli,
             set_codex_cli_path,
@@ -1476,6 +1586,7 @@ pub fn run() {
             start_diagnose_task,
             start_patch_task,
             cancel_task,
+            delete_task,
             list_task_events,
             list_recent_tasks,
             list_changed_files,

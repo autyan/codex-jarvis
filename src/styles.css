@@ -247,7 +247,7 @@ input {
 .session-item span:first-child {
   display: block;
   overflow: hidden;
-  padding-right: 24px;
+  padding-right: 44px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -259,6 +259,19 @@ input {
   position: absolute;
   right: 7px;
   top: 6px;
+}
+
+.delete-control {
+  align-items: center;
+  color: #969696;
+  display: inline-flex;
+  position: absolute;
+  right: 26px;
+  top: 6px;
+}
+
+.delete-control:hover {
+  color: #ce9178;
 }
 
 .workspace {

@@ -1,9 +1,9 @@
-import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, UserRound } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
-import { listRecentTasks } from "./api/tasks";
+import { deleteTask, listRecentTasks } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -57,6 +57,13 @@ export function App() {
     setPinnedTaskIds((current) =>
       current.includes(taskId) ? current.filter((id) => id !== taskId) : [...current, taskId],
     );
+  }
+
+  async function handleDeleteTask(taskId: string) {
+    await deleteTask(taskId);
+    setPinnedTaskIds((current) => current.filter((id) => id !== taskId));
+    setActiveTaskId((current) => (current === taskId ? undefined : current));
+    void recentTasksQuery.refetch();
   }
 
   function startTerminalResize(event: MouseEvent<HTMLDivElement>) {
@@ -122,6 +129,7 @@ export function App() {
           pinnedTaskIds={pinnedTaskIds}
           onSelect={setActiveTaskId}
           onTogglePin={togglePin}
+          onDelete={handleDeleteTask}
           emptyLabel="No pinned sessions"
         />
         <SessionGroup
@@ -131,6 +139,7 @@ export function App() {
           pinnedTaskIds={pinnedTaskIds}
           onSelect={setActiveTaskId}
           onTogglePin={togglePin}
+          onDelete={handleDeleteTask}
           emptyLabel="No sessions yet"
         />
       </aside>
@@ -252,6 +261,7 @@ function SessionGroup({
   pinnedTaskIds,
   onSelect,
   onTogglePin,
+  onDelete,
   emptyLabel,
 }: {
   title: string;
@@ -260,6 +270,7 @@ function SessionGroup({
   pinnedTaskIds: string[];
   onSelect: (taskId: string) => void;
   onTogglePin: (taskId: string) => void;
+  onDelete: (taskId: string) => void;
   emptyLabel: string;
 }) {
   return (
@@ -272,7 +283,7 @@ function SessionGroup({
             className={task.taskId === activeTaskId ? "nav-item active session-item" : "nav-item session-item"}
             onClick={() => onSelect(task.taskId)}
           >
-            <span>{task.taskId}</span>
+            <span>{task.title ?? task.taskId}</span>
             <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
             <span
               className="pin-control"
@@ -291,6 +302,24 @@ function SessionGroup({
               }}
             >
               {pinnedTaskIds.includes(task.taskId) ? <PinOff size={14} /> : <Pin size={14} />}
+            </span>
+            <span
+              className="delete-control"
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete(task.taskId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onDelete(task.taskId);
+                }
+              }}
+            >
+              <Trash2 size={14} />
             </span>
           </button>
         ))}

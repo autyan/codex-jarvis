@@ -21,6 +21,10 @@ export function cancelTask(taskId: string) {
   return invoke<void>("cancel_task", { taskId });
 }
 
+export function deleteTask(taskId: string) {
+  return invoke<void>("delete_task", { taskId });
+}
+
 export function listTaskEvents(taskId: string, offset = 0, limit = 200) {
   return invoke<TaskEventPage>("list_task_events", { taskId, offset, limit });
 }
