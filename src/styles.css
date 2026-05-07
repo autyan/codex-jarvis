@@ -944,6 +944,10 @@ textarea {
   padding: 10px;
 }
 
+.settings-card-wide {
+  grid-column: 1 / -1;
+}
+
 .settings-card h3 {
   align-items: center;
   display: flex;
@@ -955,6 +959,32 @@ textarea {
 
 .settings-card dd {
   overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profile-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.profile-editor label {
+  display: grid;
+  gap: 5px;
+}
+
+.profile-editor span {
+  color: #bbbbbb;
+}
+
+.profile-editor textarea {
+  font-family: "CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  min-height: 260px;
 }
 
 .bottom-activity {

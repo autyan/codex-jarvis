@@ -1,4 +1,5 @@
-import { Database, History, MonitorCog, ShieldCheck, Terminal, Wrench } from "lucide-react";
+import { Database, History, MonitorCog, SlidersHorizontal, ShieldCheck, Terminal, Wrench } from "lucide-react";
+import { useMemo, useState } from "react";
 import { linuxDomainLabels } from "../../data/profiles";
 import type { CodexCliInfo } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
@@ -9,6 +10,10 @@ type SettingsViewProps = {
 };
 
 export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const profileJson = useMemo(() => JSON.stringify(profile, null, 2), [profile]);
+  const [profileDraft, setProfileDraft] = useState(profileJson);
+
   return (
     <section className="settings-view">
       <div className="section-heading">
@@ -19,6 +24,54 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
       </div>
 
       <div className="settings-grid">
+        <section className="settings-card settings-card-wide">
+          <h3>
+            <SlidersHorizontal size={16} />
+            Profiles
+          </h3>
+          <dl>
+            <div>
+              <dt>Current profile</dt>
+              <dd>{profile.name}</dd>
+            </div>
+            <div>
+              <dt>Platform</dt>
+              <dd>Linux</dd>
+            </div>
+            <div>
+              <dt>Domains</dt>
+              <dd>{profile.domains.map((domain) => `${linuxDomainLabels[domain.domainId]}:${domain.access}`).join(", ")}</dd>
+            </div>
+          </dl>
+          <div className="settings-actions">
+            <button
+              className="secondary-action"
+              onClick={() => {
+                setProfileDraft(profileJson);
+                setProfileEditorOpen((open) => !open);
+              }}
+            >
+              {profileEditorOpen ? "Close editor" : "Edit profile"}
+            </button>
+          </div>
+          {profileEditorOpen ? (
+            <div className="profile-editor">
+              <label>
+                <span>Profile JSON</span>
+                <textarea value={profileDraft} onChange={(event) => setProfileDraft(event.target.value)} />
+              </label>
+              <div className="settings-actions">
+                <button className="secondary-action" onClick={() => setProfileDraft(profileJson)}>
+                  Reset
+                </button>
+                <button className="secondary-action" disabled>
+                  Save profile
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+
         <section className="settings-card">
           <h3>
             <Wrench size={16} />
@@ -114,7 +167,7 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
             </div>
             <div>
               <dt>Profiles</dt>
-              <dd>Built from Linux domains</dd>
+              <dd>Editable profile surface enabled</dd>
             </div>
             <div>
               <dt>Changed files</dt>
@@ -168,7 +221,7 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
             </div>
             <div>
               <dt>Settings editing</dt>
-              <dd>Disabled in this preview</dd>
+              <dd>Only profile editor is exposed</dd>
             </div>
           </dl>
         </section>
