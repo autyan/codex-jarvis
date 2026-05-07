@@ -262,12 +262,16 @@ fn start_diagnose_task(
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &prompt);
+    let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
     let task_id_for_thread = task_id.clone();
 
     thread::spawn(move || {
+        let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
+        let runtime_cwd = task_workspace.to_string_lossy().to_string();
+
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -279,7 +283,7 @@ fn start_diagnose_task(
             },
         );
 
-        let context = merge_attached_context(collect_context(&profile), attached_context.as_deref());
+        let context = merge_attached_context(collect_context(&profile, &task_workspace), attached_context.as_deref());
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -291,8 +295,7 @@ fn start_diagnose_task(
             },
         );
 
-        let task_prompt = build_diagnose_prompt(&profile, &context, &prompt);
-        let cwd = expand_home(profile.cwd);
+        let task_prompt = build_diagnose_prompt(&profile, &runtime_cwd, &runtime_read_paths, &context, &prompt);
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
@@ -300,7 +303,7 @@ fn start_diagnose_task(
             .arg("--sandbox")
             .arg("read-only")
             .arg(task_prompt)
-            .current_dir(cwd)
+            .current_dir(&task_workspace)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -384,12 +387,17 @@ fn start_patch_task(
     let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &prompt);
+    let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
     let task_id_for_thread = task_id.clone();
 
     thread::spawn(move || {
+        let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
+        let runtime_write_paths = vec![task_workspace.to_string_lossy().to_string()];
+        let runtime_cwd = task_workspace.to_string_lossy().to_string();
+
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -401,7 +409,7 @@ fn start_patch_task(
             },
         );
 
-        let before_scan = scan_write_paths(&profile);
+        let before_scan = scan_paths(&runtime_write_paths);
         let snapshot = create_before_snapshot(&task_id_for_thread, &before_scan);
         emit_task_event(
             &app_for_thread,
@@ -414,7 +422,7 @@ fn start_patch_task(
             },
         );
 
-        let context = merge_attached_context(collect_context(&profile), attached_context.as_deref());
+        let context = merge_attached_context(collect_context(&profile, &task_workspace), attached_context.as_deref());
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -426,20 +434,19 @@ fn start_patch_task(
             },
         );
 
-        let task_prompt = build_patch_prompt(&profile, &context, &prompt);
-        let cwd = expand_home(profile.cwd);
+        let task_prompt = build_patch_prompt(&profile, &runtime_cwd, &runtime_read_paths, &runtime_write_paths, &context, &prompt);
         let mut command = Command::new(&codex_cli);
         command
             .arg("exec")
             .arg("--skip-git-repo-check")
             .arg("--sandbox")
             .arg("workspace-write");
-        for path in &profile.write_paths {
+        for path in &runtime_write_paths {
             command.arg("--add-dir").arg(codex_add_dir_path(path));
         }
         command
             .arg(task_prompt)
-            .current_dir(cwd)
+            .current_dir(&task_workspace)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -470,7 +477,7 @@ fn start_patch_task(
                         }
 
                         let success = status.success();
-                        let after_scan = scan_write_paths(&profile);
+                        let after_scan = scan_paths(&runtime_write_paths);
                         let changed_files = detect_changed_files(&before_scan, &after_scan);
                         persist_changed_files(&task_id_for_thread, &changed_files);
                         let diff = generate_task_diff(&snapshot, &changed_files);
@@ -619,10 +626,15 @@ fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
 #[tauri::command]
 fn delete_task(task_id: String) -> Result<(), String> {
     let task_dir = task_data_dir(&task_id).ok_or_else(|| "Could not resolve task data directory".to_string())?;
-    if !task_dir.exists() {
-        return Ok(());
+    if task_dir.exists() {
+        fs::remove_dir_all(task_dir).map_err(|error| error.to_string())?;
     }
-    fs::remove_dir_all(task_dir).map_err(|error| error.to_string())
+    if let Some(workspace_dir) = session_workspace_dir(&task_id) {
+        if workspace_dir.exists() {
+            fs::remove_dir_all(workspace_dir).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1066,7 +1078,7 @@ fn new_terminal_id() -> String {
     format!("terminal_{}", now_millis())
 }
 
-fn collect_context(profile: &TaskProfile) -> String {
+fn collect_context(profile: &TaskProfile, cwd: &Path) -> String {
     profile
         .readonly_commands
         .iter()
@@ -1074,7 +1086,7 @@ fn collect_context(profile: &TaskProfile) -> String {
             let output = Command::new("sh")
                 .arg("-lc")
                 .arg(command)
-                .current_dir(expand_home(profile.cwd))
+                .current_dir(cwd)
                 .output();
 
             match output {
@@ -1159,7 +1171,13 @@ fn normalize_executable_path(path: &str) -> Result<String, String> {
     Ok(expanded)
 }
 
-fn build_diagnose_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -> String {
+fn build_diagnose_prompt(
+    profile: &TaskProfile,
+    cwd: &str,
+    read_paths: &[String],
+    context: &str,
+    user_prompt: &str,
+) -> String {
     format!(
         "You are assisting with a read-only Linux workstation maintenance task.\n\n\
 Task profile:\n\
@@ -1182,9 +1200,8 @@ User task:\n{user_prompt}",
         name = profile.name,
         platform = profile.platform,
         domains = format_profile_domains(&profile),
-        cwd = profile.cwd,
-        read_paths = profile
-            .read_paths
+        cwd = cwd,
+        read_paths = read_paths
             .iter()
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
@@ -1198,7 +1215,14 @@ User task:\n{user_prompt}",
     )
 }
 
-fn build_patch_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -> String {
+fn build_patch_prompt(
+    profile: &TaskProfile,
+    cwd: &str,
+    read_paths: &[String],
+    write_paths: &[String],
+    context: &str,
+    user_prompt: &str,
+) -> String {
     format!(
         "You are assisting with a Linux workstation maintenance patch task.\n\n\
 Task profile:\n\
@@ -1223,15 +1247,13 @@ User task:\n{user_prompt}",
         name = profile.name,
         platform = profile.platform,
         domains = format_profile_domains(&profile),
-        cwd = profile.cwd,
-        read_paths = profile
-            .read_paths
+        cwd = cwd,
+        read_paths = read_paths
             .iter()
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
             .join("\n"),
-        write_paths = profile
-            .write_paths
+        write_paths = write_paths
             .iter()
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
@@ -1378,6 +1400,14 @@ fn workspace_data_dir() -> Option<PathBuf> {
     Some(app_data_dir()?.join("workspace"))
 }
 
+fn session_workspaces_dir() -> Option<PathBuf> {
+    Some(workspace_data_dir()?.join("sessions"))
+}
+
+fn session_workspace_dir(task_id: &str) -> Option<PathBuf> {
+    Some(session_workspaces_dir()?.join(task_id))
+}
+
 fn app_data_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".local/share/codex-jarvis"))
@@ -1390,6 +1420,7 @@ fn ensure_app_workspace() -> Result<(), String> {
     fs::create_dir_all(data_dir.join("snapshots")).map_err(|error| error.to_string())?;
     fs::create_dir_all(data_dir.join("terminal")).map_err(|error| error.to_string())?;
     fs::create_dir_all(&workspace_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("sessions")).map_err(|error| error.to_string())?;
     fs::create_dir_all(workspace_dir.join("daily-maintenance")).map_err(|error| error.to_string())?;
     fs::create_dir_all(workspace_dir.join("dev-environment")).map_err(|error| error.to_string())?;
     fs::create_dir_all(workspace_dir.join("service-debugging")).map_err(|error| error.to_string())?;
@@ -1408,6 +1439,38 @@ fn ensure_app_workspace() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn ensure_task_workspace(task_id: &str, profile: &TaskProfile) -> Result<PathBuf, String> {
+    let workspace_dir = session_workspace_dir(task_id).ok_or_else(|| "Could not resolve task workspace".to_string())?;
+    fs::create_dir_all(&workspace_dir).map_err(|error| error.to_string())?;
+
+    let metadata = serde_json::json!({
+        "taskId": task_id,
+        "profileId": profile.id,
+        "profileName": profile.name,
+        "platform": profile.platform,
+        "domains": profile.domains,
+        "createdAt": now_millis(),
+    });
+    let metadata_path = workspace_dir.join(".jarvis-session.json");
+    if !metadata_path.exists() {
+        if let Ok(content) = serde_json::to_string_pretty(&metadata) {
+            let _ = fs::write(metadata_path, content);
+        }
+    }
+
+    Ok(workspace_dir)
+}
+
+fn runtime_read_paths(profile: &TaskProfile, task_workspace: &Path) -> Vec<String> {
+    let mut paths = profile
+        .read_paths
+        .iter()
+        .map(|path| expand_home(path))
+        .collect::<Vec<_>>();
+    paths.push(task_workspace.to_string_lossy().to_string());
+    paths
 }
 
 fn persist_task_title_if_missing(task_id: &str, prompt: &str) {
@@ -1449,10 +1512,10 @@ fn append_file(path: PathBuf, text: &str) {
     }
 }
 
-fn scan_write_paths(profile: &TaskProfile) -> HashMap<String, FileState> {
+fn scan_paths(paths: &[String]) -> HashMap<String, FileState> {
     let mut files = HashMap::new();
-    for path in &profile.write_paths {
-        collect_file_states(PathBuf::from(expand_home(path)), &mut files);
+    for path in paths {
+        collect_file_states(PathBuf::from(path), &mut files);
     }
     files
 }
