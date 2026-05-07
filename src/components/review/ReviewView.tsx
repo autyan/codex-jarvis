@@ -1,12 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { FileDiff, RefreshCw } from "lucide-react";
-import { getTaskDiff, listChangedFiles } from "../../api/tasks";
+import { FileDiff, RefreshCw, RotateCcw } from "lucide-react";
+import { useState } from "react";
+import { getTaskDiff, listChangedFiles, rollbackTask } from "../../api/tasks";
+import type { RollbackResult } from "../../types/task";
 
 type ReviewViewProps = {
   taskId?: string;
 };
 
 export function ReviewView({ taskId }: ReviewViewProps) {
+  const [rollbackResult, setRollbackResult] = useState<RollbackResult>();
+  const [rollbackError, setRollbackError] = useState<string>();
+  const [isRollingBack, setIsRollingBack] = useState(false);
   const changedFilesQuery = useQuery({
     queryKey: ["changed-files", taskId],
     queryFn: () => (taskId ? listChangedFiles(taskId) : []),
@@ -21,6 +26,22 @@ export function ReviewView({ taskId }: ReviewViewProps) {
   function refresh() {
     void changedFilesQuery.refetch();
     void diffQuery.refetch();
+  }
+
+  async function handleRollback() {
+    if (!taskId) return;
+    setIsRollingBack(true);
+    setRollbackError(undefined);
+    try {
+      const result = await rollbackTask(taskId);
+      setRollbackResult(result);
+      await changedFilesQuery.refetch();
+      await diffQuery.refetch();
+    } catch (error) {
+      setRollbackError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRollingBack(false);
+    }
   }
 
   if (!taskId) {
@@ -49,7 +70,22 @@ export function ReviewView({ taskId }: ReviewViewProps) {
           <RefreshCw size={16} />
           Refresh
         </button>
+        <button className="secondary-action danger-action" onClick={handleRollback} disabled={isRollingBack}>
+          <RotateCcw size={16} />
+          Rollback
+        </button>
       </div>
+
+      {rollbackResult ? (
+        <div className="rollback-banner">
+          <strong>Rollback complete</strong>
+          <span>
+            restored {rollbackResult.restored.length}, deleted {rollbackResult.deleted.length}, skipped{" "}
+            {rollbackResult.skipped.length}
+          </span>
+        </div>
+      ) : null}
+      {rollbackError ? <div className="rollback-banner error">{rollbackError}</div> : null}
 
       <div className="review-layout">
         <aside className="changed-files">
@@ -68,4 +104,3 @@ export function ReviewView({ taskId }: ReviewViewProps) {
     </section>
   );
 }
-

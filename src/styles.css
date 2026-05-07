@@ -252,6 +252,11 @@ textarea {
   opacity: 0.6;
 }
 
+.danger-action {
+  border-color: #d7b59b;
+  color: #8a4b1f;
+}
+
 .section-heading {
   align-items: baseline;
   display: flex;
@@ -495,6 +500,24 @@ textarea {
   display: grid;
   gap: 14px;
   grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.rollback-banner {
+  align-items: center;
+  background: #e9f2ef;
+  border: 1px solid #b9d2c9;
+  border-radius: 8px;
+  color: #1f6b5d;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+}
+
+.rollback-banner.error {
+  background: #f6e9df;
+  border-color: #dfc1a9;
+  color: #8a4b1f;
 }
 
 .changed-files {

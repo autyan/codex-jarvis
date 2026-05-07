@@ -123,6 +123,15 @@ struct ChangedFile {
     after_hash: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RollbackResult {
+    task_id: String,
+    restored: Vec<String>,
+    deleted: Vec<String>,
+    skipped: Vec<String>,
+}
+
 #[tauri::command]
 fn detect_codex_cli() -> CodexCliInfo {
     match Command::new("codex").arg("--version").output() {
@@ -521,6 +530,80 @@ fn get_task_diff(task_id: String) -> Result<String, String> {
         return Ok(String::new());
     }
     fs::read_to_string(path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn rollback_task(app: AppHandle, task_id: String) -> Result<RollbackResult, String> {
+    let changed_files = list_changed_files(task_id.clone())?;
+    let Some(task_dir) = task_data_dir(&task_id) else {
+        return Err("Task data directory is unavailable".to_string());
+    };
+
+    let mut result = RollbackResult {
+        task_id: task_id.clone(),
+        restored: Vec::new(),
+        deleted: Vec::new(),
+        skipped: Vec::new(),
+    };
+
+    for file in changed_files {
+        let path = PathBuf::from(&file.path);
+        match file.status.as_str() {
+            "created" => {
+                if path.exists() {
+                    match fs::remove_file(&path) {
+                        Ok(()) => result.deleted.push(file.path.clone()),
+                        Err(error) => result.skipped.push(format!("{}: {}", file.path, error)),
+                    }
+                }
+            }
+            "modified" => {
+                if has_post_task_change(&file) {
+                    result.skipped.push(format!("{}: changed after task", file.path));
+                    continue;
+                }
+                let snapshot_path = task_dir.join("snapshots/before").join(safe_snapshot_name(&file.path));
+                match fs::copy(&snapshot_path, &path) {
+                    Ok(_) => result.restored.push(file.path.clone()),
+                    Err(error) => result.skipped.push(format!("{}: {}", file.path, error)),
+                }
+            }
+            "deleted" => {
+                let snapshot_path = task_dir.join("snapshots/before").join(safe_snapshot_name(&file.path));
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                match fs::copy(&snapshot_path, &path) {
+                    Ok(_) => result.restored.push(file.path.clone()),
+                    Err(error) => result.skipped.push(format!("{}: {}", file.path, error)),
+                }
+            }
+            _ => result.skipped.push(format!("{}: unknown status {}", file.path, file.status)),
+        }
+    }
+
+    let log = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("rollback.json"), log).map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("changed-files.json"), "[]").map_err(|error| error.to_string())?;
+    fs::write(task_dir.join("diff.patch"), "").map_err(|error| error.to_string())?;
+
+    emit_task_event(
+        &app,
+        TaskEvent {
+            task_id,
+            event: "rolled_back",
+            text: Some(format!(
+                "Rollback restored {} files, deleted {} files, skipped {} files",
+                result.restored.len(),
+                result.deleted.len(),
+                result.skipped.len()
+            )),
+            status: Some("rolled_back".to_string()),
+            exit_code: None,
+        },
+    );
+
+    Ok(result)
 }
 
 fn profiles() -> Vec<TaskProfile> {
@@ -1004,6 +1087,16 @@ fn stable_hash(content: &[u8]) -> u64 {
     hash
 }
 
+fn has_post_task_change(file: &ChangedFile) -> bool {
+    let Some(after_hash) = &file.after_hash else {
+        return false;
+    };
+    let Ok(content) = fs::read(&file.path) else {
+        return false;
+    };
+    stable_hash(&content).to_string() != *after_hash
+}
+
 fn next_event_sequence(task_dir: &std::path::Path) -> u64 {
     fs::read_to_string(task_dir.join("events.jsonl"))
         .map(|content| content.lines().count() as u64)
@@ -1072,7 +1165,8 @@ pub fn run() {
             list_task_events,
             list_recent_tasks,
             list_changed_files,
-            get_task_diff
+            get_task_diff,
+            rollback_task
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Codex Jarvis");

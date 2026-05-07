@@ -33,6 +33,7 @@ export type TaskEvent = {
     | "stderr"
     | "file_changed"
     | "diff_ready"
+    | "rolled_back"
     | "task_finished"
     | "task_failed"
     | "task_cancelled";
@@ -80,4 +81,11 @@ export type ChangedFile = {
   status: "created" | "modified" | "deleted";
   beforeHash?: string;
   afterHash?: string;
+};
+
+export type RollbackResult = {
+  taskId: string;
+  restored: string[];
+  deleted: string[];
+  skipped: string[];
 };

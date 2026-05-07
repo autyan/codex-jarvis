@@ -148,6 +148,8 @@ cargo test
 
 ## Stage 6 — Rollback
 
+Status: complete
+
 Goal:
 
 - make patch tasks reversible outside Git repositories.
