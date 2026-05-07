@@ -228,7 +228,9 @@ input {
 
 .nav-item.active {
   background: #37373d;
-  border-color: #454545;
+  border-color: #5a5a66;
+  box-shadow: inset 2px 0 0 #4fc1ff;
+  color: #ffffff;
 }
 
 .nav-item.muted {
@@ -250,6 +252,15 @@ input {
   padding-right: 44px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-item.active span:first-child {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.session-item.active small {
+  color: #c5c5c5;
 }
 
 .pin-control {

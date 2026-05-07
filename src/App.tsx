@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
@@ -18,6 +18,7 @@ const TerminalView = lazy(() =>
 );
 
 export function App() {
+  const queryClient = useQueryClient();
   const [activeProfileId, setActiveProfileId] = useState("shell");
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
@@ -69,9 +70,14 @@ export function App() {
   }
 
   async function handleDeleteTask(taskId: string) {
+    const deletingActiveTask = activeTaskId === taskId;
     await deleteTask(taskId);
     setPinnedTaskIds((current) => current.filter((id) => id !== taskId));
     setActiveTaskId((current) => (current === taskId ? undefined : current));
+    queryClient.removeQueries({ queryKey: ["task-events", taskId] });
+    if (deletingActiveTask) {
+      setAttachedTerminalOutput(undefined);
+    }
     void recentTasksQuery.refetch();
   }
 
@@ -290,6 +296,7 @@ function SessionGroup({
           <button
             key={task.taskId}
             className={task.taskId === activeTaskId ? "nav-item active session-item" : "nav-item session-item"}
+            aria-current={task.taskId === activeTaskId ? "page" : undefined}
             onClick={() => onSelect(task.taskId)}
           >
             <span>{task.title ?? task.taskId}</span>

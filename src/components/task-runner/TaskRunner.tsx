@@ -78,6 +78,14 @@ export function TaskRunner({
 
   useEffect(() => {
     const events = selectedEventsQuery.data?.events;
+    if (!selectedTaskId) {
+      activeTaskIdRef.current = undefined;
+      setTaskId(undefined);
+      setStatus("idle");
+      setLogs([]);
+      setPrompt(defaultPrompt);
+      return;
+    }
     if (!selectedTaskId || !events || selectedTaskId === activeTaskIdRef.current) return;
 
     activeTaskIdRef.current = selectedTaskId;
