@@ -49,12 +49,12 @@ Prerequisites:
 
 - Node.js 22+
 - pnpm 10.33.4
-- Rust toolchain with Cargo
+- system Rust toolchain with Cargo
 - Codex CLI for end-to-end local validation
 - Fedora Tauri build dependencies:
 
 ```bash
-sudo dnf install -y dbus-devel webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel
+sudo dnf install -y rust cargo rustfmt dbus-devel webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel
 ```
 
 Install dependencies:
