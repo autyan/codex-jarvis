@@ -73,6 +73,7 @@ struct StartDiagnoseTaskRequest {
     task_id: Option<String>,
     profile_id: String,
     prompt: String,
+    user_message: Option<String>,
     attached_context: Option<String>,
     #[serde(default)]
     direct_execute: bool,
@@ -84,6 +85,7 @@ struct StartPatchTaskRequest {
     task_id: Option<String>,
     profile_id: String,
     prompt: String,
+    user_message: Option<String>,
     attached_context: Option<String>,
     #[serde(default)]
     direct_execute: bool,
@@ -112,6 +114,8 @@ struct PersistedTaskEvent {
     task_id: String,
     event: String,
     source: String,
+    #[serde(default)]
+    text: Option<String>,
     text_preview: Option<String>,
     payload_path: Option<String>,
     status: Option<String>,
@@ -278,8 +282,9 @@ fn start_diagnose_task(
 
     let attached_context = request.attached_context;
     let direct_execute = request.direct_execute;
+    let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
-    persist_task_title_if_missing(&task_id, &prompt);
+    persist_task_title_if_missing(&task_id, &user_message);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
@@ -289,6 +294,17 @@ fn start_diagnose_task(
     thread::spawn(move || {
         let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
         let runtime_cwd = task_workspace.to_string_lossy().to_string();
+
+        emit_task_event(
+            &app_for_thread,
+            TaskEvent {
+                task_id: task_id_for_thread.clone(),
+                event: "user_message",
+                text: Some(user_message),
+                status: None,
+                exit_code: None,
+            },
+        );
 
         emit_task_event(
             &app_for_thread,
@@ -411,8 +427,9 @@ fn start_patch_task(
 
     let attached_context = request.attached_context;
     let direct_execute = request.direct_execute;
+    let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
-    persist_task_title_if_missing(&task_id, &prompt);
+    persist_task_title_if_missing(&task_id, &user_message);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
@@ -423,6 +440,17 @@ fn start_patch_task(
         let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
         let runtime_write_paths = vec![task_workspace.to_string_lossy().to_string()];
         let runtime_cwd = task_workspace.to_string_lossy().to_string();
+
+        emit_task_event(
+            &app_for_thread,
+            TaskEvent {
+                task_id: task_id_for_thread.clone(),
+                event: "user_message",
+                text: Some(user_message),
+                status: None,
+                exit_code: None,
+            },
+        );
 
         emit_task_event(
             &app_for_thread,
@@ -605,7 +633,8 @@ fn cancel_task(
 fn list_task_events(task_id: String, offset: usize, limit: usize) -> Result<TaskEventPage, String> {
     let events = read_persisted_events(&task_id)?;
     let total = events.len();
-    let page = events.into_iter().skip(offset).take(limit).collect();
+    let mut page: Vec<PersistedTaskEvent> = events.into_iter().skip(offset).take(limit).collect();
+    hydrate_event_texts(&mut page);
 
     Ok(TaskEventPage {
         task_id,
@@ -1444,6 +1473,7 @@ fn persist_task_event(event: &TaskEvent) {
         event: event.event.to_string(),
         source: source.to_string(),
         text_preview,
+        text: None,
         payload_path,
         status: event.status.clone(),
         exit_code: event.exit_code,
@@ -1798,6 +1828,20 @@ fn read_persisted_events(task_id: &str) -> Result<Vec<PersistedTaskEvent>, Strin
         .collect())
 }
 
+fn hydrate_event_texts(events: &mut [PersistedTaskEvent]) {
+    for event in events {
+        if event.text.is_some() {
+            continue;
+        }
+        let Some(payload_path) = &event.payload_path else {
+            continue;
+        };
+        if matches!(event.source.as_str(), "user" | "assistant" | "stdout" | "stderr") {
+            event.text = fs::read_to_string(payload_path).ok();
+        }
+    }
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1807,8 +1851,9 @@ fn now_millis() -> u128 {
 
 fn event_source(event: &str) -> &'static str {
     match event {
+        "user_message" => "user",
         "context_collected" => "context",
-        "stdout" => "stdout",
+        "stdout" => "assistant",
         "stderr" | "task_failed" => "stderr",
         _ => "system",
     }

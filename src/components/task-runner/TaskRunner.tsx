@@ -1,10 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
-import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
-import type { TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+import type { PersistedTaskEvent, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
@@ -18,6 +17,7 @@ type TaskRunnerProps = {
 };
 
 const defaultPrompt = "";
+const eventWindowSize = 120;
 
 export function TaskRunner({
   profile,
@@ -33,22 +33,40 @@ export function TaskRunner({
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
   const [directExecute, setDirectExecute] = useState(false);
+  const [eventOffset, setEventOffset] = useState(0);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const activeTaskIdRef = useRef<string | undefined>(undefined);
-  const selectedEventsQuery = useQuery({
-    queryKey: ["task-events", selectedTaskId, "workspace"],
-    queryFn: async () => {
-      if (!selectedTaskId) return undefined;
-      const windowSize = 500;
-      const firstPage = await listTaskEvents(selectedTaskId, 0, 1);
-      return listTaskEvents(selectedTaskId, Math.max(0, firstPage.total - windowSize), windowSize);
-    },
-    enabled: Boolean(selectedTaskId) && selectedTaskId !== activeTaskIdRef.current,
-  });
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
   const canApplyProposal = status === "awaiting_review";
   const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
+  const hasOlderEvents = eventOffset > 0;
+
+  const loadLatestEvents = useCallback(async (nextTaskId: string) => {
+    const firstPage = await listTaskEvents(nextTaskId, 0, 1);
+    const offset = Math.max(0, firstPage.total - eventWindowSize);
+    const page = await listTaskEvents(nextTaskId, offset, eventWindowSize);
+    activeTaskIdRef.current = nextTaskId;
+    setTaskId(nextTaskId);
+    setEventOffset(page.offset);
+    setStatus([...page.events].reverse().find((event) => event.status)?.status ?? "idle");
+    setLogs(eventsToLogs(page.events));
+  }, []);
+
+  const loadOlderEvents = useCallback(async () => {
+    if (!taskId || !hasOlderEvents || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    try {
+      const nextOffset = Math.max(0, eventOffset - eventWindowSize);
+      const limit = eventOffset - nextOffset;
+      const page = await listTaskEvents(taskId, nextOffset, limit);
+      setEventOffset(page.offset);
+      setLogs((currentLogs) => mergeLogWindows(eventsToLogs(page.events), currentLogs));
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [eventOffset, hasOlderEvents, isLoadingOlder, taskId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -61,14 +79,22 @@ export function TaskRunner({
       if (payload.status) setStatus(payload.status);
 
       if (payload.text) {
-        setLogs((currentLogs) => [
-          ...currentLogs.slice(-5000),
-          {
-            id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
-            source: logSource(payload.event),
-            text: payload.text ?? "",
-          },
-        ]);
+        setLogs((currentLogs) => {
+          if (
+            payload.event === "user_message" &&
+            currentLogs.some((log) => log.source === "user" && log.text === payload.text)
+          ) {
+            return currentLogs;
+          }
+          return [
+            ...currentLogs.slice(-5000),
+            {
+              id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
+              source: logSource(payload.event),
+              text: payload.text ?? "",
+            },
+          ];
+        });
       }
     }).then((unsubscribe) => {
       removeListener = unsubscribe;
@@ -81,28 +107,18 @@ export function TaskRunner({
   }, []);
 
   useEffect(() => {
-    const events = selectedEventsQuery.data?.events;
     if (!selectedTaskId) {
       activeTaskIdRef.current = undefined;
       setTaskId(undefined);
       setStatus("idle");
       setLogs([]);
-      setPrompt(defaultPrompt);
+      setEventOffset(0);
+      setPrompt(readPromptDraft(undefined));
       return;
     }
-    if (!selectedTaskId || !events || selectedTaskId === activeTaskIdRef.current) return;
-
-    activeTaskIdRef.current = selectedTaskId;
-    setTaskId(selectedTaskId);
-    setStatus([...events].reverse().find((event) => event.status)?.status ?? "idle");
-    setLogs(
-      events.map((event) => ({
-        id: `${event.taskId}-${event.sequence}`,
-        source: event.source,
-        text: event.textPreview ?? event.payloadPath ?? event.event,
-      })),
-    );
-  }, [selectedEventsQuery.data?.events, selectedTaskId]);
+    setPrompt(readPromptDraft(selectedTaskId));
+    void loadLatestEvents(selectedTaskId);
+  }, [loadLatestEvents, selectedTaskId]);
 
   const statusLabel = useMemo(() => {
     if (status === "context_collected") return "Context collected";
@@ -137,6 +153,7 @@ export function TaskRunner({
         taskId: nextTaskId,
         profileId: profile.id,
         prompt: buildProposalPrompt(message, profile.writeEnabled, directExecute),
+        userMessage: prompt,
         attachedContext,
         directExecute,
       };
@@ -144,6 +161,8 @@ export function TaskRunner({
       setTaskId(response.taskId);
       setStatus("running");
       setPrompt("");
+      clearPromptDraft(nextTaskId);
+      if (!taskId) clearPromptDraft(undefined);
     } catch (error) {
       setStatus("failed");
       setLogs((currentLogs) => [
@@ -189,7 +208,11 @@ export function TaskRunner({
         <textarea
           placeholder="Ask Codex to inspect, explain, change, or continue this workspace..."
           value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
+          onChange={(event) => {
+            const nextPrompt = event.target.value;
+            setPrompt(nextPrompt);
+            writePromptDraft(taskId, nextPrompt);
+          }}
         />
       </label>
 
@@ -238,9 +261,47 @@ export function TaskRunner({
         </button>
       </div>
 
-      <VirtualLog logs={logs} />
+      <VirtualLog
+        logs={logs}
+        hasOlder={hasOlderEvents}
+        isLoadingOlder={isLoadingOlder}
+        onLoadOlder={loadOlderEvents}
+      />
     </section>
   );
+}
+
+function eventsToLogs(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
+  return events.map((event: PersistedTaskEvent) => ({
+    id: `${event.taskId}-${event.sequence}`,
+    source: event.source,
+    text: event.text ?? event.textPreview ?? event.payloadPath ?? event.event,
+  }));
+}
+
+function mergeLogWindows(olderLogs: TaskLogLine[], currentLogs: TaskLogLine[]) {
+  const seen = new Set(olderLogs.map((log) => log.id));
+  return [...olderLogs, ...currentLogs.filter((log) => !seen.has(log.id))];
+}
+
+function promptDraftKey(taskId?: string) {
+  return `codex-jarvis:prompt-draft:${taskId ?? "new"}`;
+}
+
+function readPromptDraft(taskId?: string) {
+  return localStorage.getItem(promptDraftKey(taskId)) ?? defaultPrompt;
+}
+
+function writePromptDraft(taskId: string | undefined, value: string) {
+  if (value.trim()) {
+    localStorage.setItem(promptDraftKey(taskId), value);
+  } else {
+    clearPromptDraft(taskId);
+  }
+}
+
+function clearPromptDraft(taskId?: string) {
+  localStorage.removeItem(promptDraftKey(taskId));
 }
 
 function buildProposalPrompt(message: string, canWriteDrafts: boolean, directExecute: boolean) {
@@ -266,6 +327,7 @@ function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinu
 }
 
 function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
+  if (event === "user_message") return "user";
   if (event === "context_collected") return "context";
   if (event === "stdout") return "assistant";
   if (event === "stderr" || event === "task_failed") return "stderr";

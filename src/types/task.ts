@@ -13,6 +13,7 @@ export type StartDiagnoseTaskRequest = {
   taskId?: string;
   profileId: string;
   prompt: string;
+  userMessage?: string;
   attachedContext?: string;
   directExecute?: boolean;
 };
@@ -27,6 +28,7 @@ export type TaskEvent = {
   taskId: string;
   event:
     | "task_started"
+    | "user_message"
     | "context_collected"
     | "snapshot_created"
     | "stdout"
@@ -53,6 +55,7 @@ export type PersistedTaskEvent = {
   taskId: string;
   event: TaskEvent["event"];
   source: TaskLogLine["source"];
+  text?: string;
   textPreview?: string;
   payloadPath?: string;
   status?: TaskStatus;

@@ -4,11 +4,14 @@ import type { TaskLogLine } from "../../types/task";
 
 type VirtualLogProps = {
   logs: TaskLogLine[];
+  hasOlder?: boolean;
+  isLoadingOlder?: boolean;
+  onLoadOlder?: () => void;
 };
 
 const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]);
 
-export function VirtualLog({ logs }: VirtualLogProps) {
+export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
   const detailLogs = useMemo(() => logs.filter((log) => !conversationSources.has(log.source)), [logs]);
@@ -29,32 +32,48 @@ export function VirtualLog({ logs }: VirtualLogProps) {
 
   return (
     <div className="conversation-stack">
-      <div ref={parentRef} className="output-box task-output chat-output" aria-live="polite">
+      <div
+        ref={parentRef}
+        className="output-box task-output chat-output"
+        aria-live="polite"
+        onScroll={(event) => {
+          if (event.currentTarget.scrollTop < 48 && hasOlder && !isLoadingOlder) {
+            onLoadOlder?.();
+          }
+        }}
+      >
         {conversationLogs.length ? (
-          <div
-            className="virtual-log-inner"
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-              const line = conversationLogs[virtualItem.index];
-              return (
-                <article
-                  key={line.id}
-                  className={`chat-message role-${line.source}`}
-                  ref={rowVirtualizer.measureElement}
-                  data-index={virtualItem.index}
-                  style={{
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
-                  <span>{line.source === "user" ? "You" : "Codex"}</span>
-                  <pre>{line.text}</pre>
-                </article>
-              );
-            })}
-          </div>
+          <>
+            {hasOlder ? (
+              <button className="load-older-button" onClick={onLoadOlder} disabled={isLoadingOlder}>
+                {isLoadingOlder ? "Loading older messages..." : "Load older messages"}
+              </button>
+            ) : null}
+            <div
+              className="virtual-log-inner"
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                const line = conversationLogs[virtualItem.index];
+                return (
+                  <article
+                    key={line.id}
+                    className={`chat-message role-${line.source}`}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualItem.index}
+                    style={{
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <span>{line.source === "user" ? "You" : "Codex"}</span>
+                    <pre>{line.text}</pre>
+                  </article>
+                );
+              })}
+            </div>
+          </>
         ) : (
           <p>Codex is preparing a response...</p>
         )}
