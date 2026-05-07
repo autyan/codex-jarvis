@@ -40,6 +40,8 @@ struct AppSettings {
     codex_model: Option<String>,
     #[serde(default = "default_codex_reasoning_effort")]
     codex_reasoning_effort: String,
+    #[serde(default = "default_session_retention_limit")]
+    session_retention_limit: usize,
 }
 
 impl Default for AppSettings {
@@ -49,6 +51,7 @@ impl Default for AppSettings {
             sudo_flow_enabled: false,
             codex_model: None,
             codex_reasoning_effort: default_codex_reasoning_effort(),
+            session_retention_limit: default_session_retention_limit(),
         }
     }
 }
@@ -64,6 +67,12 @@ struct SetCodexCliPathRequest {
 struct SetCodexModelSettingsRequest {
     codex_model: Option<String>,
     codex_reasoning_effort: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetSessionRetentionLimitRequest {
+    limit: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -352,6 +361,14 @@ fn set_codex_model_settings(request: SetCodexModelSettingsRequest) -> Result<App
         .and_then(|model| normalize_optional_model(&model));
     settings.codex_reasoning_effort = normalize_reasoning_effort(&request.codex_reasoning_effort)
         .ok_or_else(|| "Unsupported Codex reasoning effort".to_string())?;
+    write_app_settings(&settings)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+fn set_session_retention_limit(request: SetSessionRetentionLimitRequest) -> Result<AppSettings, String> {
+    let mut settings = read_app_settings();
+    settings.session_retention_limit = request.limit.clamp(16, 256);
     write_app_settings(&settings)?;
     Ok(settings)
 }
@@ -1694,6 +1711,10 @@ fn default_codex_reasoning_effort() -> String {
     "medium".to_string()
 }
 
+fn default_session_retention_limit() -> usize {
+    64
+}
+
 fn normalize_reasoning_effort(value: &str) -> Option<String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "low" | "medium" | "high" => Some(value.trim().to_ascii_lowercase()),
@@ -2699,6 +2720,7 @@ pub fn run() {
             get_app_settings,
             set_sudo_flow_enabled,
             set_codex_model_settings,
+            set_session_retention_limit,
             list_profiles,
             start_diagnose_task,
             start_patch_task,

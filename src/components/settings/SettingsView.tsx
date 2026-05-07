@@ -10,9 +10,17 @@ type SettingsViewProps = {
   settings?: AppSettings;
   onSetSudoFlow: (enabled: boolean) => void;
   onSetCodexModel: (codexModel: string | undefined, codexReasoningEffort: CodexReasoningEffort) => void;
+  onSetSessionRetentionLimit: (limit: number) => void;
 };
 
-export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow, onSetCodexModel }: SettingsViewProps) {
+export function SettingsView({
+  codexInfo,
+  profile,
+  settings,
+  onSetCodexModel,
+  onSetSessionRetentionLimit,
+  onSetSudoFlow,
+}: SettingsViewProps) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const profileJson = useMemo(() => JSON.stringify(profile, null, 2), [profile]);
   const [profileDraft, setProfileDraft] = useState(profileJson);
@@ -44,6 +52,18 @@ export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow, onSe
             <div>
               <dt>Domains</dt>
               <dd>{profile.domains.map((domain) => `${linuxDomainLabels[domain.domainId]}:${domain.access}`).join(", ")}</dd>
+            </div>
+            <div>
+              <dt>Readable paths</dt>
+              <dd>{profile.readPaths.length}</dd>
+            </div>
+            <div>
+              <dt>Writable paths</dt>
+              <dd>{profile.writePaths.length ? profile.writePaths.join(", ") : "None"}</dd>
+            </div>
+            <div>
+              <dt>Sudo candidates</dt>
+              <dd>{profile.domains.filter((domain) => domain.access === "plan").map((domain) => linuxDomainLabels[domain.domainId]).join(", ") || "None"}</dd>
             </div>
           </dl>
           <div className="settings-actions">
@@ -228,7 +248,25 @@ export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow, onSe
               <dt>Rollback logs</dt>
               <dd>Stored with task metadata</dd>
             </div>
+            <div>
+              <dt>Session retention</dt>
+              <dd>{settings?.sessionRetentionLimit ?? 64} unpinned sessions</dd>
+            </div>
           </dl>
+          <div className="settings-form-grid">
+            <label>
+              <span>Retention limit</span>
+              <select
+                value={settings?.sessionRetentionLimit ?? 64}
+                onChange={(event) => onSetSessionRetentionLimit(Number(event.target.value))}
+              >
+                <option value={32}>32 sessions</option>
+                <option value={64}>64 sessions</option>
+                <option value={128}>128 sessions</option>
+                <option value={256}>256 sessions</option>
+              </select>
+            </label>
+          </div>
         </section>
 
         <section className="settings-card">
@@ -243,11 +281,11 @@ export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow, onSe
             </div>
             <div>
               <dt>Scrolling</dt>
-              <dd>Virtualized long transcript</dd>
+              <dd>Chat window + side tools</dd>
             </div>
             <div>
-              <dt>Dedicated History page</dt>
-              <dd>Removed from primary navigation</dd>
+              <dt>Token policy</dt>
+              <dd>Recent 24 chat messages, tool logs excluded</dd>
             </div>
           </dl>
         </section>

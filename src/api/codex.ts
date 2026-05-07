@@ -27,3 +27,7 @@ export function setSudoFlowEnabled(enabled: boolean) {
 export function setCodexModelSettings(request: SetCodexModelSettingsRequest) {
   return invoke<AppSettings>("set_codex_model_settings", { request });
 }
+
+export function setSessionRetentionLimit(limit: number) {
+  return invoke<AppSettings>("set_session_retention_limit", { request: { limit } });
+}

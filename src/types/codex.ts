@@ -16,6 +16,7 @@ export type AppSettings = {
   sudoFlowEnabled: boolean;
   codexModel?: string;
   codexReasoningEffort: CodexReasoningEffort;
+  sessionRetentionLimit: number;
 };
 
 export type SetCodexModelSettingsRequest = {

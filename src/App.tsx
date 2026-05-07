@@ -2,7 +2,7 @@ import { AlertCircle, BrainCircuit, CheckCircle2, FileDiff, Pencil, Pin, PinOff,
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { detectCodexCli, getAppSettings, setCodexModelSettings, setSudoFlowEnabled } from "./api/codex";
+import { detectCodexCli, getAppSettings, setCodexModelSettings, setSessionRetentionLimit, setSudoFlowEnabled } from "./api/codex";
 import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, pruneSessions, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
@@ -16,7 +16,7 @@ import type { SudoRequest, TaskSummary } from "./types/task";
 const TerminalView = lazy(() =>
   import("./components/terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
 );
-const sessionRetentionLimit = 64;
+const fallbackSessionRetentionLimit = 64;
 const pinnedStorageKey = "codex-jarvis:pinned-sessions";
 
 export function App() {
@@ -70,6 +70,7 @@ export function App() {
     refetchInterval: activeTask?.latestStatus === "awaiting_review" ? 1500 : 5000,
   });
   const hasReviewableProposal = (activeChangedFilesQuery.data?.length ?? 0) > 0;
+  const sessionRetentionLimit = appSettingsQuery.data?.sessionRetentionLimit ?? fallbackSessionRetentionLimit;
 
   useEffect(() => {
     function disableDefaultContextMenu(event: globalThis.MouseEvent) {
@@ -130,7 +131,9 @@ export function App() {
 
   async function handleSetSudoFlow(enabled: boolean) {
     queryClient.setQueryData<AppSettings>(["app-settings"], (current) =>
-      current ? { ...current, sudoFlowEnabled: enabled } : { sudoFlowEnabled: enabled, codexReasoningEffort: "medium" },
+      current
+        ? { ...current, sudoFlowEnabled: enabled }
+        : { sudoFlowEnabled: enabled, codexReasoningEffort: "medium", sessionRetentionLimit },
     );
     try {
       const settings = await setSudoFlowEnabled(enabled);
@@ -143,12 +146,28 @@ export function App() {
   async function handleSetCodexModel(codexModel: string | undefined, codexReasoningEffort: CodexReasoningEffort) {
     queryClient.setQueryData<AppSettings>(["app-settings"], (current) => ({
       codexCliPath: current?.codexCliPath,
+      sessionRetentionLimit: current?.sessionRetentionLimit ?? sessionRetentionLimit,
       sudoFlowEnabled: current?.sudoFlowEnabled ?? false,
       codexModel,
       codexReasoningEffort,
     }));
     try {
       const settings = await setCodexModelSettings({ codexModel, codexReasoningEffort });
+      queryClient.setQueryData(["app-settings"], settings);
+    } catch {
+      void appSettingsQuery.refetch();
+    }
+  }
+
+  async function handleSetSessionRetentionLimit(limit: number) {
+    const nextLimit = Math.min(256, Math.max(16, Math.round(limit)));
+    queryClient.setQueryData<AppSettings>(["app-settings"], (current) =>
+      current
+        ? { ...current, sessionRetentionLimit: nextLimit }
+        : { sudoFlowEnabled: false, codexReasoningEffort: "medium", sessionRetentionLimit: nextLimit },
+    );
+    try {
+      const settings = await setSessionRetentionLimit(nextLimit);
       queryClient.setQueryData(["app-settings"], settings);
     } catch {
       void appSettingsQuery.refetch();
@@ -330,6 +349,7 @@ export function App() {
             settings={appSettingsQuery.data}
             onSetSudoFlow={handleSetSudoFlow}
             onSetCodexModel={handleSetCodexModel}
+            onSetSessionRetentionLimit={handleSetSessionRetentionLimit}
           />
         </Modal>
       ) : null}
