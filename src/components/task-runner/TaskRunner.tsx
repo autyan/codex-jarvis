@@ -25,6 +25,7 @@ const olderEventPageSize = 180;
 const initialEventPageSize = 160;
 const initialConversationCharTarget = 3200;
 const maxInitialEventWindow = 420;
+const maxCachedSessionWindows = 8;
 type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
 type SessionViewCache = {
   contextSnapshots: ContextSnapshot[];
@@ -106,7 +107,7 @@ export function TaskRunner({
       const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
       const cached = sessionCacheRef.current.get(nextTaskId);
       const mergedLogs = options?.background && cached ? mergeLogWindows(cached.logs, nextLogs) : nextLogs;
-      sessionCacheRef.current.set(nextTaskId, {
+      rememberSessionViewCache(sessionCacheRef.current, nextTaskId, {
         contextSnapshots: cached?.contextSnapshots ?? [],
         eventOffset: Math.min(offset, cached?.eventOffset ?? offset),
         logs: mergedLogs,
@@ -147,7 +148,7 @@ export function TaskRunner({
       const payload = event.payload;
       const cached = sessionCacheRef.current.get(payload.taskId);
       if (cached) {
-        sessionCacheRef.current.set(payload.taskId, {
+        rememberSessionViewCache(sessionCacheRef.current, payload.taskId, {
           ...cached,
           logs: payload.text ? appendEventLog(cached.logs, payload) : cached.logs,
           status: payload.status ?? cached.status,
@@ -201,6 +202,7 @@ export function TaskRunner({
     setPrompt(readPromptDraft(selectedTaskId));
     const cached = sessionCacheRef.current.get(selectedTaskId);
     if (cached) {
+      rememberSessionViewCache(sessionCacheRef.current, selectedTaskId, cached);
       setStatus(cached.status);
       setLogs(cached.logs);
       setEventOffset(cached.eventOffset);
@@ -219,7 +221,7 @@ export function TaskRunner({
 
   useEffect(() => {
     if (!taskId) return;
-    sessionCacheRef.current.set(taskId, {
+    rememberSessionViewCache(sessionCacheRef.current, taskId, {
       contextSnapshots,
       eventOffset,
       logs,
@@ -777,6 +779,17 @@ function appendEventLog(currentLogs: TaskLogLine[], payload: TaskEvent) {
       text: payload.text,
     },
   ];
+}
+
+function rememberSessionViewCache(cache: Map<string, SessionViewCache>, taskId: string, value: SessionViewCache) {
+  cache.delete(taskId);
+  cache.set(taskId, value);
+
+  while (cache.size > maxCachedSessionWindows) {
+    const oldestTaskId = cache.keys().next().value;
+    if (!oldestTaskId) return;
+    cache.delete(oldestTaskId);
+  }
 }
 
 function countConversationCharacters(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
