@@ -170,6 +170,25 @@ struct TaskEventPage {
     total: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationMessage {
+    id: String,
+    role: String,
+    text: String,
+    start_sequence: u64,
+    end_sequence: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationWindow {
+    task_id: String,
+    messages: Vec<ConversationMessage>,
+    before_cursor: Option<u64>,
+    has_older: bool,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskSummary {
@@ -784,6 +803,52 @@ fn list_task_events(task_id: String, offset: usize, limit: usize) -> Result<Task
         offset,
         limit,
         total,
+    })
+}
+
+#[tauri::command]
+fn get_conversation_window(
+    task_id: String,
+    before_cursor: Option<u64>,
+    max_messages: usize,
+    max_chars: usize,
+) -> Result<ConversationWindow, String> {
+    let mut events = read_persisted_events(&task_id)?;
+    hydrate_event_texts(&mut events);
+    let messages = build_conversation_messages(&events);
+    let max_messages = max_messages.clamp(4, 120);
+    let max_chars = max_chars.clamp(4_000, 150_000);
+    let eligible = messages
+        .iter()
+        .filter(|message| before_cursor.map(|cursor| message.end_sequence < cursor).unwrap_or(true))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut selected = Vec::new();
+    let mut chars = 0usize;
+    for message in eligible.iter().rev() {
+        let next_chars = chars + message.text.chars().count();
+        if !selected.is_empty() && selected.len() >= max_messages {
+            break;
+        }
+        if !selected.is_empty() && next_chars > max_chars {
+            break;
+        }
+        chars = next_chars;
+        selected.push(message.clone());
+    }
+    selected.reverse();
+
+    let before_cursor = selected.first().map(|message| message.start_sequence);
+    let has_older = before_cursor
+        .map(|cursor| messages.iter().any(|message| message.end_sequence < cursor))
+        .unwrap_or(false);
+
+    Ok(ConversationWindow {
+        task_id,
+        messages: selected,
+        before_cursor,
+        has_older,
     })
 }
 
@@ -2771,6 +2836,107 @@ fn hydrate_event_texts(events: &mut [PersistedTaskEvent]) {
     }
 }
 
+fn build_conversation_messages(events: &[PersistedTaskEvent]) -> Vec<ConversationMessage> {
+    let mut messages = Vec::new();
+    let mut assistant: Option<ConversationMessage> = None;
+
+    for event in events {
+        match event.event.as_str() {
+            "user_message" => {
+                flush_assistant_message(&mut messages, &mut assistant);
+                if let Some(text) = clean_user_message(event.text.as_deref().or(event.text_preview.as_deref())) {
+                    messages.push(ConversationMessage {
+                        id: format!("{}-{}", event.task_id, event.sequence),
+                        role: "user".to_string(),
+                        text,
+                        start_sequence: event.sequence,
+                        end_sequence: event.sequence,
+                    });
+                }
+            }
+            "stdout" => {
+                if let Some(text) = clean_assistant_message(event.text.as_deref().or(event.text_preview.as_deref())) {
+                    if let Some(current) = assistant.as_mut() {
+                        current.text.push('\n');
+                        current.text.push_str(&text);
+                        current.end_sequence = event.sequence;
+                    } else {
+                        assistant = Some(ConversationMessage {
+                            id: format!("{}-{}", event.task_id, event.sequence),
+                            role: "assistant".to_string(),
+                            text,
+                            start_sequence: event.sequence,
+                            end_sequence: event.sequence,
+                        });
+                    }
+                }
+            }
+            _ => {
+                flush_assistant_message(&mut messages, &mut assistant);
+            }
+        }
+    }
+    flush_assistant_message(&mut messages, &mut assistant);
+
+    messages
+}
+
+fn flush_assistant_message(messages: &mut Vec<ConversationMessage>, assistant: &mut Option<ConversationMessage>) {
+    if let Some(mut message) = assistant.take() {
+        message.text = normalize_message_text(&message.text);
+        if !message.text.is_empty() {
+            messages.push(message);
+        }
+    }
+}
+
+fn clean_user_message(text: Option<&str>) -> Option<String> {
+    let text = normalize_message_text(text?);
+    (!text.is_empty()).then_some(text)
+}
+
+fn clean_assistant_message(text: Option<&str>) -> Option<String> {
+    let text = strip_jarvis_protocol(text?);
+    let text = normalize_message_text(&text);
+    (!text.is_empty()).then_some(text)
+}
+
+fn strip_jarvis_protocol(text: &str) -> String {
+    let mut output = Vec::new();
+    let mut in_proposal = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("JARVIS_SESSION_TITLE:") || trimmed.starts_with("SUDO_REQUEST_JSON:") {
+            continue;
+        }
+        if trimmed.contains("JARVIS_PROPOSAL_BEGIN") {
+            in_proposal = true;
+            continue;
+        }
+        if trimmed.contains("JARVIS_PROPOSAL_END") {
+            in_proposal = false;
+            continue;
+        }
+        if in_proposal {
+            continue;
+        }
+        output.push(line);
+    }
+
+    output.join("\n")
+}
+
+fn normalize_message_text(text: &str) -> String {
+    text.trim()
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2821,6 +2987,7 @@ pub fn run() {
             delete_task,
             rename_task,
             list_task_events,
+            get_conversation_window,
             list_recent_tasks,
             prune_sessions,
             list_changed_files,

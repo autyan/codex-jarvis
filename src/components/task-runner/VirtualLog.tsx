@@ -1,30 +1,30 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { TaskLogLine } from "../../types/task";
+import type { ConversationMessage } from "../../types/task";
 
 type VirtualLogProps = {
-  logs: TaskLogLine[];
+  messages: ConversationMessage[];
   hasOlder?: boolean;
   isInitialLoading?: boolean;
   isLoadingOlder?: boolean;
   onLoadOlder?: () => void;
 };
 
-const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]);
-
-export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
+export function VirtualLog({ messages, hasOlder, isInitialLoading, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const pendingScrollHeightRef = useRef<number | undefined>(undefined);
+  const pendingAnchorRef = useRef<{ id: string; offset: number } | undefined>(undefined);
   const [messageMenu, setMessageMenu] = useState<{ x: number; y: number; text: string; label: string }>();
-  const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
+  const messageCount = messages.length;
 
   useLayoutEffect(() => {
     const root = parentRef.current;
-    const previousScrollHeight = pendingScrollHeightRef.current;
-    if (!root || previousScrollHeight === undefined || isLoadingOlder) return;
+    const anchor = pendingAnchorRef.current;
+    if (!root || !anchor || isLoadingOlder) return;
+    const element = root.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.id)}"]`);
+    if (!element) return;
 
-    root.scrollTop += root.scrollHeight - previousScrollHeight;
-    pendingScrollHeightRef.current = undefined;
-  }, [conversationLogs.length, isLoadingOlder]);
+    root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset;
+    pendingAnchorRef.current = undefined;
+  }, [messageCount, isLoadingOlder]);
 
   useEffect(() => {
     if (!messageMenu) return;
@@ -48,7 +48,7 @@ export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, o
   function loadOlderFromScroll() {
     const root = parentRef.current;
     if (!root || !hasOlder || isLoadingOlder) return;
-    pendingScrollHeightRef.current = root.scrollHeight;
+    pendingAnchorRef.current = findTopAnchor(root);
     onLoadOlder?.();
   }
 
@@ -82,7 +82,7 @@ export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, o
     );
   }
 
-  if (!logs.length) {
+  if (!messages.length) {
     return (
       <div className="output-box task-output chat-output">
         <p>Start a conversation with Codex. Recent messages load here and remain scrollable.</p>
@@ -102,18 +102,19 @@ export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, o
         }
       }}
     >
-      {conversationLogs.length ? (
+      {messages.length ? (
         <>
           {isLoadingOlder ? <div className="history-window-status">Loading older messages...</div> : null}
           <div className="chat-log-flow">
-            {conversationLogs.map((line) => (
+            {messages.map((message) => (
               <article
-                key={line.id}
-                className={`chat-message role-${line.source}`}
-                onContextMenu={(event) => openMessageMenu(event, line.text)}
+                key={message.id}
+                className={`chat-message role-${message.role === "user" ? "user" : "assistant"}`}
+                data-message-id={message.id}
+                onContextMenu={(event) => openMessageMenu(event, message.text)}
               >
-                <span>{line.source === "user" ? "You" : "Codex"}</span>
-                <pre>{line.text}</pre>
+                <span>{message.role === "user" ? "You" : "Codex"}</span>
+                <pre>{message.text}</pre>
               </article>
             ))}
           </div>
@@ -136,17 +137,15 @@ export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, o
   );
 }
 
-function mergeConversationLogs(logs: TaskLogLine[]) {
-  return logs.reduce<TaskLogLine[]>((merged, log) => {
-    const previous = merged.at(-1);
-    if (previous?.source === log.source) {
-      previous.text = `${previous.text.trimEnd()}\n\n${log.text.trimStart()}`;
-      previous.id = `${previous.id}-${log.id}`;
-      return merged;
-    }
-    merged.push({ ...log });
-    return merged;
-  }, []);
+function findTopAnchor(root: HTMLElement) {
+  const rootTop = root.getBoundingClientRect().top;
+  const elements = Array.from(root.querySelectorAll<HTMLElement>("[data-message-id]"));
+  const element = elements.find((candidate) => candidate.getBoundingClientRect().bottom >= rootTop) ?? elements[0];
+  if (!element) return undefined;
+  return {
+    id: element.dataset.messageId ?? "",
+    offset: element.getBoundingClientRect().top - rootTop,
+  };
 }
 
 async function writeClipboardText(text: string) {

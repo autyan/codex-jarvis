@@ -3,6 +3,7 @@ import type {
   ApplyReviewResult,
   ChangedFile,
   ChangedFileContent,
+  ConversationWindow,
   PruneSessionsResult,
   ProposalState,
   RollbackResult,
@@ -36,6 +37,10 @@ export function renameTask(taskId: string, title: string) {
 
 export function listTaskEvents(taskId: string, offset = 0, limit = 200) {
   return invoke<TaskEventPage>("list_task_events", { taskId, offset, limit });
+}
+
+export function getConversationWindow(taskId: string, beforeCursor?: number, maxMessages = 12, maxChars = 20_000) {
+  return invoke<ConversationWindow>("get_conversation_window", { taskId, beforeCursor, maxMessages, maxChars });
 }
 
 export function listRecentTasks(limit = 30) {

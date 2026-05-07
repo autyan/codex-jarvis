@@ -56,6 +56,21 @@ export type TaskLogLine = {
   text: string;
 };
 
+export type ConversationMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  startSequence: number;
+  endSequence: number;
+};
+
+export type ConversationWindow = {
+  taskId: string;
+  messages: ConversationMessage[];
+  beforeCursor?: number;
+  hasOlder: boolean;
+};
+
 export type PersistedTaskEvent = {
   sequence: number;
   taskId: string;

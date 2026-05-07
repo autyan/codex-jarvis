@@ -2,10 +2,10 @@ import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, ChevronDown, ChevronRight, FileDiff, Gauge, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { cancelTask, getTaskProposal, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
+import { cancelTask, getConversationWindow, getTaskProposal, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { AppSettings } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
-import type { PersistedTaskEvent, SudoRequest, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+import type { ConversationMessage, PersistedTaskEvent, SudoRequest, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
@@ -21,17 +21,15 @@ type TaskRunnerProps = {
 };
 
 const defaultPrompt = "";
-const olderEventPageSize = 180;
 const initialEventPageSize = 160;
-const initialConversationCharTarget = 3200;
-const maxInitialEventWindow = 420;
-const minInitialUserMessages = 2;
 const maxCachedSessionWindows = 8;
 type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
 type SessionViewCache = {
+  beforeCursor?: number;
   contextSnapshots: ContextSnapshot[];
-  eventOffset: number;
+  hasOlder: boolean;
   logs: TaskLogLine[];
+  messages: ConversationMessage[];
   status: TaskStatus;
 };
 
@@ -50,6 +48,9 @@ export function TaskRunner({
   const [taskId, setTaskId] = useState<string>();
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
+  const [beforeCursor, setBeforeCursor] = useState<number>();
+  const [hasOlderConversation, setHasOlderConversation] = useState(false);
   const [directExecute, setDirectExecute] = useState(false);
   const [eventOffset, setEventOffset] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
@@ -77,9 +78,8 @@ export function TaskRunner({
   });
   const canApplyProposal = Boolean(proposalState?.content) && !isActive;
   const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
-  const hasOlderEvents = eventOffset > 0;
   const toolLogs = useMemo(() => logs.filter((log) => log.source !== "user" && log.source !== "assistant"), [logs]);
-  const chatLogs = useMemo(() => logs.filter((log) => log.source === "user" || log.source === "assistant"), [logs]);
+  const chatLogs = useMemo(() => conversationMessagesToLogs(conversationMessages), [conversationMessages]);
   const tokenEstimate = useMemo(() => estimateTokenUsage(chatLogs, attachedContext), [attachedContext, chatLogs]);
   const sessionTokenEstimate = useMemo(() => estimateSessionTokens(chatLogs, contextSnapshots), [chatLogs, contextSnapshots]);
   const executionItems = useMemo(() => buildExecutionTimeline(toolLogs), [toolLogs]);
@@ -87,35 +87,36 @@ export function TaskRunner({
   const loadLatestEvents = useCallback(async (nextTaskId: string, options?: { background?: boolean }) => {
     try {
       const firstPage = await listTaskEvents(nextTaskId, 0, 1);
-      let offset = Math.max(0, firstPage.total - initialEventPageSize);
-      let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
-      let events = page.events;
-
-      while (shouldLoadMoreInitialEvents(offset, events)) {
-        const nextOffset = Math.max(0, offset - initialEventPageSize);
-        const nextPage = await listTaskEvents(nextTaskId, nextOffset, offset - nextOffset);
-        events = [...nextPage.events, ...events];
-        offset = nextPage.offset;
-      }
+      const offset = Math.max(0, firstPage.total - initialEventPageSize);
+      const page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
+      const conversation = await getConversationWindow(nextTaskId, undefined, 12, 20_000);
 
       if (activeTaskIdRef.current !== nextTaskId) return;
 
-      const nextLogs = eventsToLogs(events);
-      const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
+      const nextLogs = eventsToLogs(page.events);
+      const nextStatus = [...page.events].reverse().find((event) => event.status)?.status ?? "idle";
       const cached = sessionCacheRef.current.get(nextTaskId);
       const mergedLogs = options?.background && cached ? mergeLogWindows(nextLogs, cached.logs) : nextLogs;
+      const mergedMessages = options?.background && cached
+        ? mergeConversationMessages(conversation.messages, cached.messages)
+        : conversation.messages;
       rememberSessionViewCache(sessionCacheRef.current, nextTaskId, {
+        beforeCursor: conversation.beforeCursor,
         contextSnapshots: cached?.contextSnapshots ?? [],
-        eventOffset: offset,
+        hasOlder: conversation.hasOlder,
         logs: mergedLogs,
+        messages: mergedMessages,
         status: nextStatus,
       });
 
       activeTaskIdRef.current = nextTaskId;
       setTaskId(nextTaskId);
       setEventOffset(offset);
+      setBeforeCursor(conversation.beforeCursor);
+      setHasOlderConversation(conversation.hasOlder);
       setStatus(nextStatus);
       setLogs(mergedLogs);
+      setConversationMessages(mergedMessages);
     } finally {
       if (!options?.background && activeTaskIdRef.current === nextTaskId) {
         setIsInitialLoading(false);
@@ -124,18 +125,17 @@ export function TaskRunner({
   }, []);
 
   const loadOlderEvents = useCallback(async () => {
-    if (!taskId || !hasOlderEvents || isLoadingOlder) return;
+    if (!taskId || !hasOlderConversation || beforeCursor === undefined || isLoadingOlder) return;
     setIsLoadingOlder(true);
     try {
-      const nextOffset = Math.max(0, eventOffset - olderEventPageSize);
-      const limit = eventOffset - nextOffset;
-      const page = await listTaskEvents(taskId, nextOffset, limit);
-      setEventOffset(page.offset);
-      setLogs((currentLogs) => mergeLogWindows(eventsToLogs(page.events), currentLogs));
+      const page = await getConversationWindow(taskId, beforeCursor, 18, 30_000);
+      setBeforeCursor(page.beforeCursor);
+      setHasOlderConversation(page.hasOlder);
+      setConversationMessages((currentMessages) => mergeConversationMessages(page.messages, currentMessages));
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [eventOffset, hasOlderEvents, isLoadingOlder, taskId]);
+  }, [beforeCursor, hasOlderConversation, isLoadingOlder, taskId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -148,6 +148,7 @@ export function TaskRunner({
         rememberSessionViewCache(sessionCacheRef.current, payload.taskId, {
           ...cached,
           logs: payload.text ? appendEventLog(cached.logs, payload) : cached.logs,
+          messages: payload.text ? appendConversationEvent(cached.messages, payload) : cached.messages,
           status: payload.status ?? cached.status,
         });
       }
@@ -171,6 +172,7 @@ export function TaskRunner({
 
       if (payload.text) {
         setLogs((currentLogs) => appendEventLog(currentLogs, payload));
+        setConversationMessages((currentMessages) => appendConversationEvent(currentMessages, payload));
       }
     }).then((unsubscribe) => {
       removeListener = unsubscribe;
@@ -188,6 +190,9 @@ export function TaskRunner({
       setTaskId(undefined);
       setStatus("idle");
       setLogs([]);
+      setConversationMessages([]);
+      setBeforeCursor(undefined);
+      setHasOlderConversation(false);
       setEventOffset(0);
       setIsInitialLoading(false);
       setContextSnapshots([]);
@@ -202,7 +207,10 @@ export function TaskRunner({
       rememberSessionViewCache(sessionCacheRef.current, selectedTaskId, cached);
       setStatus(cached.status);
       setLogs(cached.logs);
-      setEventOffset(cached.eventOffset);
+      setConversationMessages(cached.messages);
+      setBeforeCursor(cached.beforeCursor);
+      setHasOlderConversation(cached.hasOlder);
+      setEventOffset(0);
       setContextSnapshots(cached.contextSnapshots);
       setIsInitialLoading(false);
       void loadLatestEvents(selectedTaskId, { background: true });
@@ -210,6 +218,9 @@ export function TaskRunner({
     }
     setStatus("idle");
     setLogs([]);
+    setConversationMessages([]);
+    setBeforeCursor(undefined);
+    setHasOlderConversation(false);
     setEventOffset(0);
     setContextSnapshots([]);
     setIsInitialLoading(true);
@@ -219,12 +230,14 @@ export function TaskRunner({
   useEffect(() => {
     if (!taskId) return;
     rememberSessionViewCache(sessionCacheRef.current, taskId, {
+      beforeCursor,
       contextSnapshots,
-      eventOffset,
+      hasOlder: hasOlderConversation,
       logs,
+      messages: conversationMessages,
       status,
     });
-  }, [contextSnapshots, eventOffset, logs, status, taskId]);
+  }, [beforeCursor, contextSnapshots, conversationMessages, hasOlderConversation, logs, status, taskId]);
 
   useEffect(() => {
     if (!composerMenu) return;
@@ -271,9 +284,19 @@ export function TaskRunner({
         text: "Sending message to Codex...",
       },
     ]);
+    setConversationMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        id: `local-user-${Date.now()}`,
+        role: "user" as const,
+        text: prompt,
+        startSequence: Number.MAX_SAFE_INTEGER,
+        endSequence: Number.MAX_SAFE_INTEGER,
+      },
+    ]);
 
     try {
-      const message = buildConversationPrompt(prompt, logs, Boolean(taskId));
+      const message = buildConversationPrompt(prompt, chatLogs, Boolean(taskId));
       const nextContextSnapshot = buildContextSnapshot({
         attachedContext,
         chatLogs,
@@ -385,8 +408,8 @@ export function TaskRunner({
         </div>
 
         <VirtualLog
-          logs={logs}
-          hasOlder={hasOlderEvents}
+          messages={conversationMessages}
+          hasOlder={hasOlderConversation}
           isInitialLoading={isInitialLoading}
           isLoadingOlder={isLoadingOlder}
           onLoadOlder={loadOlderEvents}
@@ -778,6 +801,60 @@ function appendEventLog(currentLogs: TaskLogLine[], payload: TaskEvent) {
   ];
 }
 
+function appendConversationEvent(currentMessages: ConversationMessage[], payload: TaskEvent): ConversationMessage[] {
+  if (!payload.text) return currentMessages;
+  if (payload.event === "user_message") {
+    if (currentMessages.some((message) => message.role === "user" && message.text === payload.text)) {
+      return currentMessages;
+    }
+    return [
+      ...currentMessages,
+      {
+        id: `live-user-${Date.now()}`,
+        role: "user" as const,
+        text: payload.text,
+        startSequence: Number.MAX_SAFE_INTEGER,
+        endSequence: Number.MAX_SAFE_INTEGER,
+      },
+    ];
+  }
+  if (payload.event !== "stdout") return currentMessages;
+
+  const previous = currentMessages.at(-1);
+  if (previous?.role === "assistant") {
+    return [
+      ...currentMessages.slice(0, -1),
+      {
+        ...previous,
+        text: `${previous.text.trimEnd()}\n${payload.text.trimStart()}`.trim(),
+      },
+    ];
+  }
+  return [
+    ...currentMessages,
+    {
+      id: `live-assistant-${Date.now()}`,
+      role: "assistant" as const,
+      text: payload.text,
+      startSequence: Number.MAX_SAFE_INTEGER,
+      endSequence: Number.MAX_SAFE_INTEGER,
+    },
+  ];
+}
+
+function conversationMessagesToLogs(messages: ConversationMessage[]) {
+  return messages.map<TaskLogLine>((message) => ({
+    id: message.id,
+    source: message.role,
+    text: message.text,
+  }));
+}
+
+function mergeConversationMessages(olderMessages: ConversationMessage[], currentMessages: ConversationMessage[]) {
+  const seen = new Set(olderMessages.map((message) => message.id));
+  return [...olderMessages, ...currentMessages.filter((message) => !seen.has(message.id))];
+}
+
 function rememberSessionViewCache(cache: Map<string, SessionViewCache>, taskId: string, value: SessionViewCache) {
   cache.delete(taskId);
   cache.set(taskId, value);
@@ -787,29 +864,6 @@ function rememberSessionViewCache(cache: Map<string, SessionViewCache>, taskId: 
     if (!oldestTaskId) return;
     cache.delete(oldestTaskId);
   }
-}
-
-function countConversationCharacters(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
-  return events.reduce((total, event) => {
-    if (event.source !== "user" && event.source !== "assistant") return total;
-    return total + (event.text?.length ?? event.textPreview?.length ?? 0);
-  }, 0);
-}
-
-function shouldLoadMoreInitialEvents(offset: number, events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
-  if (offset <= 0 || events.length >= maxInitialEventWindow) return false;
-  if (countConversationCharacters(events) < initialConversationCharTarget) return true;
-  if (countUserMessages(events) < minInitialUserMessages) return true;
-  return startsInsideAssistantReply(events);
-}
-
-function countUserMessages(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
-  return events.filter((event) => event.source === "user").length;
-}
-
-function startsInsideAssistantReply(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
-  const firstConversationEvent = events.find((event) => event.source === "user" || event.source === "assistant");
-  return firstConversationEvent?.source === "assistant";
 }
 
 function mergeLogWindows(olderLogs: TaskLogLine[], currentLogs: TaskLogLine[]) {
