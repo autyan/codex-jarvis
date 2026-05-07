@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerm } from "@xterm/xterm";
 import type { IDisposable } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { closeTerminal, resizeTerminal, startTerminal, writeTerminal } from "../../api/terminal";
 import type { TaskProfile } from "../../types/profile";
 import type { TerminalEvent } from "../../types/terminal";
@@ -23,6 +23,7 @@ export function TerminalView({ active, profile, onAttachOutput: _onAttachOutput 
   const dataSubscriptionRef = useRef<IDisposable | undefined>(undefined);
   const openingRef = useRef(false);
   const [status, setStatus] = useState<"idle" | "starting" | "running" | "closed" | "failed">("idle");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | undefined>();
 
   useEffect(() => {
     let isMounted = true;
@@ -63,6 +64,25 @@ export function TerminalView({ active, profile, onAttachOutput: _onAttachOutput 
       requestAnimationFrame(() => terminalRef.current?.focus());
     }
   }, [active]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    function closeMenu() {
+      setContextMenu(undefined);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMenu();
+    }
+
+    window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
 
   async function openTerminal() {
     if (terminalRef.current || openingRef.current) return;
@@ -121,9 +141,77 @@ export function TerminalView({ active, profile, onAttachOutput: _onAttachOutput 
     terminalRef.current = undefined;
   }
 
+  function openContextMenu(event: MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY });
+  }
+
+  async function copySelection() {
+    const selection = terminalRef.current?.getSelection() ?? "";
+    if (!selection) {
+      setContextMenu(undefined);
+      return;
+    }
+    await writeClipboardText(selection);
+    terminalRef.current?.focus();
+    setContextMenu(undefined);
+  }
+
+  async function pasteClipboard() {
+    const text = await readClipboardText();
+    if (text && terminalIdRef.current) {
+      await writeTerminal(terminalIdRef.current, text);
+    }
+    terminalRef.current?.focus();
+    setContextMenu(undefined);
+  }
+
   return (
-    <section className={`terminal-workspace terminal-${status}`} aria-label={`${profile.name} terminal`}>
+    <section
+      className={`terminal-workspace terminal-${status}`}
+      aria-label={`${profile.name} terminal`}
+      onContextMenu={openContextMenu}
+    >
       <div ref={containerRef} className="xterm-host" />
+      {contextMenu ? (
+        <div
+          className="terminal-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button onClick={() => void copySelection()} disabled={!terminalRef.current?.hasSelection()}>
+            Copy
+          </button>
+          <button onClick={() => void pasteClipboard()} disabled={status !== "running"}>
+            Paste
+          </button>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+async function readClipboardText() {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return "";
+  }
+}
+
+async function writeClipboardText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textArea);
+  }
 }
