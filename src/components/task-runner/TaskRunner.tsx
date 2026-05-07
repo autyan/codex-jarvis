@@ -55,6 +55,7 @@ export function TaskRunner({
   const [eventOffset, setEventOffset] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [sessionOpenVersion, setSessionOpenVersion] = useState(0);
   const [activeTool, setActiveTool] = useState<ToolTab>("proposal");
   const [contextSnapshots, setContextSnapshots] = useState<ContextSnapshot[]>([]);
   const [composerMenu, setComposerMenu] = useState<{ x: number; y: number }>();
@@ -201,6 +202,7 @@ export function TaskRunner({
     }
     activeTaskIdRef.current = selectedTaskId;
     setTaskId(selectedTaskId);
+    setSessionOpenVersion((version) => version + 1);
     setPrompt(readPromptDraft(selectedTaskId));
     const cached = sessionCacheRef.current.get(selectedTaskId);
     if (cached) {
@@ -413,7 +415,7 @@ export function TaskRunner({
           isInitialLoading={isInitialLoading}
           isLoadingOlder={isLoadingOlder}
           onLoadOlder={loadOlderEvents}
-          scrollToLatestKey={taskId}
+          scrollToLatestKey={taskId ? `${taskId}:${sessionOpenVersion}` : undefined}
         />
 
         <div className="composer-panel">
