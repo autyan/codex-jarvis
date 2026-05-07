@@ -1,5 +1,3 @@
-export type TaskMode = "diagnose" | "patch" | "suggest_commands";
-
 export type TaskStatus =
   | "idle"
   | "starting"

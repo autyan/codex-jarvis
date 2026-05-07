@@ -1,17 +1,17 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Plus, Send, Terminal } from "lucide-react";
+import { Ban, CheckCircle2, Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
-import type { TaskEvent, TaskLogLine, TaskMode, TaskStatus } from "../../types/task";
+import type { TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
   profile: TaskProfile;
   selectedTaskId?: string;
   onTaskStarted: (taskId: string) => void;
-  onOpenTerminal: () => void;
+  onOpenReview: () => void;
   attachedContext?: string;
   onClearAttachedContext: () => void;
 };
@@ -22,12 +22,11 @@ export function TaskRunner({
   profile,
   selectedTaskId,
   onTaskStarted,
-  onOpenTerminal,
+  onOpenReview,
   attachedContext,
   onClearAttachedContext,
 }: TaskRunnerProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
-  const [mode, setMode] = useState<TaskMode>("diagnose");
   const [taskId, setTaskId] = useState<string>();
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
@@ -45,6 +44,7 @@ export function TaskRunner({
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
+  const canApplyProposal = status === "awaiting_review";
 
   useEffect(() => {
     let isMounted = true;
@@ -132,10 +132,10 @@ export function TaskRunner({
       const request = {
         taskId: nextTaskId,
         profileId: profile.id,
-        prompt: message,
+        prompt: buildProposalPrompt(message, profile.writeEnabled),
         attachedContext,
       };
-      const response = mode === "patch" ? await startPatchTask(request) : await startDiagnoseTask(request);
+      const response = profile.writeEnabled ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
       setStatus("running");
       setPrompt("");
@@ -169,13 +169,6 @@ export function TaskRunner({
     }
   }
 
-  function resetTask() {
-    activeTaskIdRef.current = undefined;
-    setTaskId(undefined);
-    setStatus("idle");
-    setLogs([]);
-  }
-
   return (
     <section className="workspace-panel task-runner">
       <div className="section-heading">
@@ -195,19 +188,6 @@ export function TaskRunner({
         />
       </label>
 
-      <div className="mode-selector" aria-label="Execution mode">
-        <button className={mode === "diagnose" ? "active" : ""} onClick={() => setMode("diagnose")}>
-          Read-only
-        </button>
-        <button
-          className={mode === "patch" ? "active" : ""}
-          onClick={() => setMode("patch")}
-          disabled={!profile.writeEnabled}
-        >
-          Patch
-        </button>
-      </div>
-
       {attachedContext ? (
         <div className="attached-context">
           <strong>Attached terminal output</strong>
@@ -217,17 +197,13 @@ export function TaskRunner({
       ) : null}
 
       <div className="button-row">
-        <button className="secondary-action" onClick={onOpenTerminal}>
-          <Terminal size={16} />
-          Terminal
-        </button>
-        <button className="secondary-action" onClick={resetTask} disabled={isActive}>
-          <Plus size={16} />
-          New
-        </button>
         <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
           <Ban size={16} />
           Cancel
+        </button>
+        <button className="secondary-action apply-action" onClick={onOpenReview} disabled={!canApplyProposal}>
+          <CheckCircle2 size={16} />
+          Apply proposal
         </button>
         <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
           <Send size={16} />
@@ -238,6 +214,14 @@ export function TaskRunner({
       <VirtualLog logs={logs} />
     </section>
   );
+}
+
+function buildProposalPrompt(message: string, canWriteDrafts: boolean) {
+  const proposalInstruction = canWriteDrafts
+    ? "If the conversation reaches a concrete decision, create a proposal automatically. Use files in the current session workspace for file drafts. For privileged or risky system operations, write a command plan instead of executing it."
+    : "If the conversation reaches a concrete decision, create a command plan in your response. Do not write files.";
+
+  return `${proposalInstruction}\n\nUser message:\n${message}`;
 }
 
 function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinuation: boolean) {

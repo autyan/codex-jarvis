@@ -10,7 +10,7 @@ import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { linuxDomainLabels, profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
-import { formatTaskMode, type TaskProfile } from "./types/profile";
+import type { TaskProfile } from "./types/profile";
 import type { TaskSummary } from "./types/task";
 
 const TerminalView = lazy(() =>
@@ -165,10 +165,7 @@ export function App() {
             profile={activeProfile}
             selectedTaskId={activeTaskId}
             onTaskStarted={(taskId) => setActiveTaskId(taskId)}
-            onOpenTerminal={() => {
-              setTerminalMounted(true);
-              setTerminalOpen(true);
-            }}
+            onOpenReview={() => setReviewOpen(true)}
             attachedContext={attachedTerminalOutput}
             onClearAttachedContext={() => setAttachedTerminalOutput(undefined)}
           />
@@ -366,7 +363,7 @@ function ProfilePicker({
         >
           <strong>{profile.name}</strong>
           <span>{profile.description}</span>
-          <small>{formatTaskMode(profile.defaultMode)} · {profile.writeEnabled ? "writes enabled" : "read only"}</small>
+          <small>{profile.writeEnabled ? "Proposal drafts enabled" : "Read-only proposals"}</small>
           <small>
             Linux · {profile.domains.map((domain) => linuxDomainLabels[domain.domainId]).join(", ")}
           </small>

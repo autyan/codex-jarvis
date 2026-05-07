@@ -501,34 +501,6 @@ textarea {
   margin: 8px 0 0;
 }
 
-.mode-selector {
-  background: #252526;
-  border: 1px solid #3c3c3c;
-  border-radius: 3px;
-  display: inline-flex;
-  gap: 2px;
-  margin-top: 8px;
-  padding: 2px;
-}
-
-.mode-selector button {
-  background: transparent;
-  border: 0;
-  border-radius: 2px;
-  color: #cccccc;
-  padding: 4px 9px;
-}
-
-.mode-selector button.active {
-  background: #37373d;
-  color: #ffffff;
-}
-
-.mode-selector button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
 .attached-context {
   align-items: center;
   background: #1f2f2f;
@@ -576,6 +548,11 @@ textarea {
   color: #fff;
   display: inline-flex;
   gap: 5px;
+}
+
+.button-row .apply-action:not(:disabled) {
+  border-color: #4ec9b0;
+  color: #4ec9b0;
 }
 
 .button-row button:disabled {

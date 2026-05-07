@@ -23,7 +23,7 @@ The first usable version targets:
 - user-level system maintenance;
 - Codex CLI detection and setup;
 - Linux-only domain model with built-in profiles: Daily Maintenance, Dev Environment, Service Debugging, Package Maintenance, Deep System Review;
-- Diagnose, Patch, and Suggested Commands modes;
+- conversation-first proposal flow with explicit review/apply;
 - PTY-backed terminal panel;
 - task history with virtualized long-session output;
 - diff review and rollback.
