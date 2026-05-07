@@ -195,6 +195,8 @@ pnpm exec tauri dev
 
 ## Stage 8 — History, Settings, and Packaging Polish
 
+Status: complete
+
 Goal:
 
 - make the app useful over repeated maintenance sessions.
@@ -203,7 +205,8 @@ Deliverables:
 
 - recent tasks and sessions;
 - settings for Codex CLI, terminal, profiles, data directory, and safety paths;
-- AppImage/RPM/deb packaging;
+- RPM/deb packaging;
+- AppImage follow-up after linuxdeploy compatibility is resolved;
 - final icon polish and Linux desktop metadata.
 
 Validation:

@@ -576,6 +576,30 @@ textarea {
   color: #8a4b1f;
 }
 
+.settings-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-card {
+  background: #fbfaf7;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.settings-card h3 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.settings-card dd {
+  overflow-wrap: anywhere;
+}
+
 .changed-files {
   border-right: 1px solid #ded8ce;
   display: grid;

@@ -9,13 +9,13 @@ import {
   Terminal,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { detectCodexCli } from "./api/codex";
 import { HistoryView } from "./components/history/HistoryView";
 import { ReviewView } from "./components/review/ReviewView";
+import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
-import { TerminalView } from "./components/terminal/TerminalView";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
 import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
@@ -27,7 +27,12 @@ const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "review", label: "Review", icon: FileDiff },
   { id: "history", label: "History", icon: History },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
+
+const TerminalView = lazy(() =>
+  import("./components/terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
+);
 
 export function App() {
   const [activeProfileId, setActiveProfileId] = useState("shell");
@@ -62,7 +67,7 @@ export function App() {
             {setupStatus === "ready" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
             {setupStatus === "ready" ? "Codex ready" : "Codex setup needed"}
           </span>
-          <button className="icon-button" aria-label="Settings" onClick={() => setActiveTab("setup")}>
+          <button className="icon-button" aria-label="Settings" onClick={() => setActiveTab("settings")}>
             <Settings size={18} />
           </button>
         </div>
@@ -236,7 +241,11 @@ function Workspace({
   }
 
   if (activeTab === "terminal") {
-    return <TerminalView profile={profile} onAttachOutput={onAttachTerminalOutput} />;
+    return (
+      <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
+        <TerminalView profile={profile} onAttachOutput={onAttachTerminalOutput} />
+      </Suspense>
+    );
   }
 
   if (activeTab === "review") {
@@ -245,6 +254,10 @@ function Workspace({
 
   if (activeTab === "history") {
     return <HistoryView />;
+  }
+
+  if (activeTab === "settings") {
+    return <SettingsView codexInfo={codexInfo} profile={profile} />;
   }
 
   return (

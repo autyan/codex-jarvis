@@ -1,1 +1,1 @@
-export type WorkspaceTab = "setup" | "task" | "terminal" | "review" | "history";
+export type WorkspaceTab = "setup" | "task" | "terminal" | "review" | "history" | "settings";
