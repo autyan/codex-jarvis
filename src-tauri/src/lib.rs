@@ -701,6 +701,23 @@ fn delete_task(task_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn rename_task(task_id: String, title: String) -> Result<(), String> {
+    let compact = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return Err("Session name cannot be empty".to_string());
+    }
+    let Some(task_dir) = task_data_dir(&task_id) else {
+        return Err("Could not resolve task data directory".to_string());
+    };
+    fs::create_dir_all(&task_dir).map_err(|error| error.to_string())?;
+    let mut safe_title = compact.chars().take(80).collect::<String>();
+    if compact.chars().count() > 80 {
+        safe_title.push_str("...");
+    }
+    fs::write(task_dir.join("title.txt"), safe_title).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_changed_files(task_id: String) -> Result<Vec<ChangedFile>, String> {
     let Some(task_dir) = task_data_dir(&task_id) else {
         return Ok(Vec::new());
@@ -1883,6 +1900,7 @@ pub fn run() {
             start_patch_task,
             cancel_task,
             delete_task,
+            rename_task,
             list_task_events,
             list_recent_tasks,
             list_changed_files,

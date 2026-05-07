@@ -246,7 +246,7 @@ input {
   align-items: start;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 58px;
 }
 
 .session-copy {
@@ -285,11 +285,16 @@ input {
 }
 
 .pin-control,
+.rename-control,
 .delete-control {
   align-items: center;
   color: #969696;
   display: inline-flex;
   flex: 0 0 auto;
+}
+
+.rename-control:hover {
+  color: #dcdcaa;
 }
 
 .delete-control:hover {

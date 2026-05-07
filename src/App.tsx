@@ -1,9 +1,9 @@
-import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
-import { deleteTask, listRecentTasks } from "./api/tasks";
+import { deleteTask, listRecentTasks, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -83,6 +83,15 @@ export function App() {
     void recentTasksQuery.refetch();
   }
 
+  async function handleRenameTask(task: TaskSummary) {
+    const nextTitle = window.prompt("Rename session", task.title ?? task.taskId);
+    if (nextTitle === null) return;
+    const trimmedTitle = nextTitle.trim();
+    if (!trimmedTitle) return;
+    await renameTask(task.taskId, trimmedTitle);
+    await recentTasksQuery.refetch();
+  }
+
   function startTerminalResize(event: MouseEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
@@ -147,6 +156,7 @@ export function App() {
           onSelect={setActiveTaskId}
           onTogglePin={togglePin}
           onDelete={handleDeleteTask}
+          onRename={handleRenameTask}
           emptyLabel="No pinned sessions"
         />
         <SessionGroup
@@ -157,6 +167,7 @@ export function App() {
           onSelect={setActiveTaskId}
           onTogglePin={togglePin}
           onDelete={handleDeleteTask}
+          onRename={handleRenameTask}
           emptyLabel="No sessions yet"
         />
       </aside>
@@ -277,6 +288,7 @@ function SessionGroup({
   onSelect,
   onTogglePin,
   onDelete,
+  onRename,
   emptyLabel,
 }: {
   title: string;
@@ -286,6 +298,7 @@ function SessionGroup({
   onSelect: (taskId: string) => void;
   onTogglePin: (taskId: string) => void;
   onDelete: (taskId: string) => void;
+  onRename: (task: TaskSummary) => void;
   emptyLabel: string;
 }) {
   return (
@@ -304,6 +317,25 @@ function SessionGroup({
               <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
             </span>
             <span className="session-actions">
+              <span
+                className="rename-control"
+                role="button"
+                tabIndex={0}
+                title="Rename session"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRename(task);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onRename(task);
+                  }
+                }}
+              >
+                <Pencil size={14} />
+              </span>
               <span
                 className="pin-control"
                 role="button"
