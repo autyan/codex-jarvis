@@ -1,4 +1,5 @@
 import { Database, History, MonitorCog, ShieldCheck, Terminal, Wrench } from "lucide-react";
+import { linuxDomainLabels } from "../../data/profiles";
 import type { CodexCliInfo } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 
@@ -108,8 +109,12 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
               <dd>~/.local/share/codex-jarvis/tasks</dd>
             </div>
             <div>
+              <dt>Platform</dt>
+              <dd>Linux only</dd>
+            </div>
+            <div>
               <dt>Profiles</dt>
-              <dd>Built in</dd>
+              <dd>Built from Linux domains</dd>
             </div>
             <div>
               <dt>Changed files</dt>
@@ -156,6 +161,10 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
             <div>
               <dt>Activity bar</dt>
               <dd>Profiles, Review, Terminal, Settings</dd>
+            </div>
+            <div>
+              <dt>Current domains</dt>
+              <dd>{profile.domains.map((domain) => `${linuxDomainLabels[domain.domainId]}:${domain.access}`).join(", ")}</dd>
             </div>
             <div>
               <dt>Settings editing</dt>

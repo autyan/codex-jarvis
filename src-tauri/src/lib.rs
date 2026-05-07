@@ -48,6 +48,8 @@ struct TaskProfile {
     id: &'static str,
     name: &'static str,
     description: &'static str,
+    platform: &'static str,
+    domains: Vec<ProfileDomain>,
     default_mode: &'static str,
     cwd: &'static str,
     write_enabled: bool,
@@ -56,6 +58,13 @@ struct TaskProfile {
     write_paths: Vec<&'static str>,
     deny_paths: Vec<&'static str>,
     readonly_commands: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileDomain {
+    domain_id: &'static str,
+    access: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -892,98 +901,150 @@ fn profiles() -> Vec<TaskProfile> {
 
     vec![
         TaskProfile {
-            id: "workspace",
-            name: "Workspace",
-            description: "Default safe workspace for notes, drafts, generated files, and local task artifacts.",
-            default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE",
-            write_enabled: true,
-            snapshot_required: true,
-            read_paths: vec!["$JARVIS_WORKSPACE"],
-            write_paths: vec!["$JARVIS_WORKSPACE"],
-            deny_paths: default_denied_paths.clone(),
-            readonly_commands: vec![
-                "pwd",
-                "find . -maxdepth 3 -type f | sort | sed -n '1,120p'",
-                "git status --short",
+            id: "daily-maintenance",
+            name: "Daily Maintenance",
+            description: "Routine Linux desktop maintenance across user config, scripts, packages, logs, and storage.",
+            platform: "linux",
+            domains: vec![
+                ProfileDomain { domain_id: "user-config", access: "draft" },
+                ProfileDomain { domain_id: "user-scripts", access: "draft" },
+                ProfileDomain { domain_id: "packages", access: "plan" },
+                ProfileDomain { domain_id: "logs", access: "read" },
+                ProfileDomain { domain_id: "storage", access: "read" },
             ],
-        },
-        TaskProfile {
-            id: "workstation-check",
-            name: "Workstation Check",
-            description: "Read-only workstation diagnostics for OS, shell, PATH, disk, and session health.",
-            default_mode: "diagnose",
-            cwd: "$JARVIS_WORKSPACE",
-            write_enabled: false,
-            snapshot_required: false,
-            read_paths: vec!["$JARVIS_WORKSPACE"],
-            write_paths: vec![],
-            deny_paths: default_denied_paths.clone(),
-            readonly_commands: vec![
-                "cat /etc/os-release",
-                "uname -a",
-                "echo $SHELL",
-                "echo $PATH",
-                "echo $XDG_SESSION_TYPE",
-                "df -h $HOME",
-            ],
-        },
-        TaskProfile {
-            id: "config-drafts",
-            name: "Config Drafts",
-            description: "Inspect common user config, but write only proposed changes under workspace/config-drafts.",
             default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE/config-drafts",
+            cwd: "$JARVIS_WORKSPACE/daily-maintenance",
             write_enabled: true,
             snapshot_required: true,
             read_paths: vec![
                 "$HOME/.zshrc",
                 "$HOME/.profile",
                 "$HOME/.bashrc",
-                "$HOME/.config/environment.d",
-                "$JARVIS_WORKSPACE/config-drafts",
+                "$HOME/.config",
+                "$HOME/.local/bin",
+                "$JARVIS_WORKSPACE/daily-maintenance",
             ],
-            write_paths: vec!["$JARVIS_WORKSPACE/config-drafts"],
+            write_paths: vec!["$JARVIS_WORKSPACE/daily-maintenance"],
             deny_paths: default_denied_paths.clone(),
             readonly_commands: vec![
+                "cat /etc/os-release",
                 "echo $SHELL",
                 "echo $PATH",
-                "test -f $HOME/.zshrc && sed -n '1,220p' $HOME/.zshrc || true",
-                "test -f $HOME/.profile && sed -n '1,180p' $HOME/.profile || true",
-                "test -d $HOME/.config/environment.d && find $HOME/.config/environment.d -maxdepth 1 -type f -print | sort || true",
+                "df -h $HOME",
+                "journalctl --user -p warning -n 80 --no-pager",
+                "command -v dnf >/dev/null && dnf check-update --refresh || true",
+                "find . -maxdepth 3 -type f | sort | sed -n '1,120p'",
             ],
         },
         TaskProfile {
-            id: "automation-drafts",
-            name: "Automation Drafts",
-            description: "Draft personal scripts and command helpers under workspace/scripts before installing them.",
+            id: "dev-environment",
+            name: "Dev Environment",
+            description: "Maintain local development shells, toolchains, wrappers, and package manager setup.",
+            platform: "linux",
+            domains: vec![
+                ProfileDomain { domain_id: "user-config", access: "draft" },
+                ProfileDomain { domain_id: "user-scripts", access: "draft" },
+                ProfileDomain { domain_id: "toolchains", access: "draft" },
+                ProfileDomain { domain_id: "packages", access: "plan" },
+            ],
             default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE/scripts",
+            cwd: "$JARVIS_WORKSPACE/dev-environment",
             write_enabled: true,
             snapshot_required: true,
-            read_paths: vec!["$HOME/.local/bin", "$JARVIS_WORKSPACE/scripts"],
-            write_paths: vec!["$JARVIS_WORKSPACE/scripts"],
+            read_paths: vec![
+                "$HOME/.zshrc",
+                "$HOME/.profile",
+                "$HOME/.local/bin",
+                "$HOME/.nvm",
+                "$HOME/.cargo",
+                "$JARVIS_WORKSPACE/dev-environment",
+            ],
+            write_paths: vec!["$JARVIS_WORKSPACE/dev-environment"],
             deny_paths: default_denied_paths.clone(),
             readonly_commands: vec![
-                "test -d $HOME/.local/bin && find $HOME/.local/bin -maxdepth 1 -type f -printf '%f\\n' | sort | sed -n '1,120p' || true",
-                "find . -maxdepth 2 -type f | sort | sed -n '1,120p'",
+                "echo $PATH",
+                "command -v node && node --version || true",
+                "command -v pnpm && pnpm --version || true",
+                "command -v cargo && cargo --version || true",
+                "command -v codex && codex --version || true",
+                "find . -maxdepth 3 -type f | sort | sed -n '1,120p'",
             ],
         },
         TaskProfile {
-            id: "user-services-drafts",
-            name: "User Services Drafts",
-            description: "Diagnose user services and draft unit files under workspace/systemd-user.",
+            id: "service-debugging",
+            name: "Service Debugging",
+            description: "Debug user services with logs, network state, and read-only visibility into system services.",
+            platform: "linux",
+            domains: vec![
+                ProfileDomain { domain_id: "user-services", access: "draft" },
+                ProfileDomain { domain_id: "system-services", access: "read" },
+                ProfileDomain { domain_id: "logs", access: "read" },
+                ProfileDomain { domain_id: "network", access: "read" },
+            ],
             default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE/systemd-user",
+            cwd: "$JARVIS_WORKSPACE/service-debugging",
             write_enabled: true,
             snapshot_required: true,
-            read_paths: vec!["$HOME/.config/systemd/user", "$JARVIS_WORKSPACE/systemd-user"],
-            write_paths: vec!["$JARVIS_WORKSPACE/systemd-user"],
-            deny_paths: default_denied_paths,
+            read_paths: vec!["$HOME/.config/systemd/user", "$JARVIS_WORKSPACE/service-debugging"],
+            write_paths: vec!["$JARVIS_WORKSPACE/service-debugging"],
+            deny_paths: default_denied_paths.clone(),
             readonly_commands: vec![
                 "systemctl --user list-units --type=service --no-pager",
                 "systemctl --user --failed --no-pager",
-                "journalctl --user -p warning -n 100 --no-pager",
+                "systemctl list-units --type=service --state=failed --no-pager || true",
+                "journalctl --user -p warning -n 120 --no-pager",
+                "ss -ltnp || true",
+            ],
+        },
+        TaskProfile {
+            id: "package-maintenance",
+            name: "Package Maintenance",
+            description: "Inspect package managers and produce safe install, update, remove, or repair plans.",
+            platform: "linux",
+            domains: vec![
+                ProfileDomain { domain_id: "packages", access: "plan" },
+                ProfileDomain { domain_id: "logs", access: "read" },
+                ProfileDomain { domain_id: "storage", access: "read" },
+            ],
+            default_mode: "diagnose",
+            cwd: "$JARVIS_WORKSPACE/package-maintenance",
+            write_enabled: true,
+            snapshot_required: true,
+            read_paths: vec!["$JARVIS_WORKSPACE/package-maintenance"],
+            write_paths: vec!["$JARVIS_WORKSPACE/package-maintenance"],
+            deny_paths: default_denied_paths.clone(),
+            readonly_commands: vec![
+                "cat /etc/os-release",
+                "command -v dnf >/dev/null && dnf repolist || true",
+                "command -v rpm >/dev/null && rpm -qa | wc -l || true",
+                "command -v flatpak >/dev/null && flatpak list || true",
+                "df -h / $HOME",
+            ],
+        },
+        TaskProfile {
+            id: "deep-system-review",
+            name: "Deep System Review",
+            description: "Read-only review of kernel, boot, security, and low-level system state.",
+            platform: "linux",
+            domains: vec![
+                ProfileDomain { domain_id: "boot-kernel", access: "read" },
+                ProfileDomain { domain_id: "system-services", access: "read" },
+                ProfileDomain { domain_id: "security", access: "read" },
+                ProfileDomain { domain_id: "logs", access: "read" },
+            ],
+            default_mode: "diagnose",
+            cwd: "$JARVIS_WORKSPACE/deep-system-review",
+            write_enabled: false,
+            snapshot_required: false,
+            read_paths: vec!["$JARVIS_WORKSPACE/deep-system-review"],
+            write_paths: vec![],
+            deny_paths: default_denied_paths,
+            readonly_commands: vec![
+                "uname -a",
+                "bootctl status --no-pager || true",
+                "lsmod | sed -n '1,120p'",
+                "getenforce 2>/dev/null || true",
+                "journalctl -p warning -b -n 120 --no-pager || true",
             ],
         },
     ]
@@ -1103,6 +1164,8 @@ fn build_diagnose_prompt(profile: &TaskProfile, context: &str, user_prompt: &str
         "You are assisting with a read-only Linux workstation maintenance task.\n\n\
 Task profile:\n\
 - Name: {name}\n\
+- Platform: {platform}\n\
+- Domains:\n{domains}\n\
 - Working directory: {cwd}\n\
 - Mode: diagnose\n\
 - Writes allowed: no\n\
@@ -1117,6 +1180,8 @@ Rules:\n\
 Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
+        platform = profile.platform,
+        domains = format_profile_domains(&profile),
         cwd = profile.cwd,
         read_paths = profile
             .read_paths
@@ -1138,6 +1203,8 @@ fn build_patch_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -
         "You are assisting with a Linux workstation maintenance patch task.\n\n\
 Task profile:\n\
 - Name: {name}\n\
+- Platform: {platform}\n\
+- Domains:\n{domains}\n\
 - Working directory: {cwd}\n\
 - Mode: patch\n\
 - Intended readable paths:\n{read_paths}\n\
@@ -1154,6 +1221,8 @@ Rules:\n\
 Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
+        platform = profile.platform,
+        domains = format_profile_domains(&profile),
         cwd = profile.cwd,
         read_paths = profile
             .read_paths
@@ -1174,6 +1243,15 @@ User task:\n{user_prompt}",
             .collect::<Vec<_>>()
             .join("\n")
     )
+}
+
+fn format_profile_domains(profile: &TaskProfile) -> String {
+    profile
+        .domains
+        .iter()
+        .map(|domain| format!("  - {}: {}", domain.domain_id, domain.access))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn expand_home(path: &str) -> String {
@@ -1312,9 +1390,11 @@ fn ensure_app_workspace() -> Result<(), String> {
     fs::create_dir_all(data_dir.join("snapshots")).map_err(|error| error.to_string())?;
     fs::create_dir_all(data_dir.join("terminal")).map_err(|error| error.to_string())?;
     fs::create_dir_all(&workspace_dir).map_err(|error| error.to_string())?;
-    fs::create_dir_all(workspace_dir.join("config-drafts")).map_err(|error| error.to_string())?;
-    fs::create_dir_all(workspace_dir.join("scripts")).map_err(|error| error.to_string())?;
-    fs::create_dir_all(workspace_dir.join("systemd-user")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("daily-maintenance")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("dev-environment")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("service-debugging")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("package-maintenance")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("deep-system-review")).map_err(|error| error.to_string())?;
 
     if !workspace_dir.join(".git").exists() {
         let _ = Command::new("git")

@@ -10,7 +10,7 @@ const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]
 
 export function VirtualLog({ logs }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const conversationLogs = useMemo(() => logs.filter((log) => conversationSources.has(log.source)), [logs]);
+  const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
   const detailLogs = useMemo(() => logs.filter((log) => !conversationSources.has(log.source)), [logs]);
   const rowVirtualizer = useVirtualizer({
     count: conversationLogs.length,
@@ -75,4 +75,17 @@ export function VirtualLog({ logs }: VirtualLogProps) {
       ) : null}
     </div>
   );
+}
+
+function mergeConversationLogs(logs: TaskLogLine[]) {
+  return logs.reduce<TaskLogLine[]>((merged, log) => {
+    const previous = merged.at(-1);
+    if (previous?.source === log.source) {
+      previous.text = `${previous.text.trimEnd()}\n\n${log.text.trimStart()}`;
+      previous.id = `${previous.id}-${log.id}`;
+      return merged;
+    }
+    merged.push({ ...log });
+    return merged;
+  }, []);
 }

@@ -8,7 +8,7 @@ import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
-import { profiles } from "./data/profiles";
+import { linuxDomainLabels, profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
 import { formatTaskMode, type TaskProfile } from "./types/profile";
 import type { TaskSummary } from "./types/task";
@@ -19,7 +19,7 @@ const TerminalView = lazy(() =>
 
 export function App() {
   const queryClient = useQueryClient();
-  const [activeProfileId, setActiveProfileId] = useState("workspace");
+  const [activeProfileId, setActiveProfileId] = useState("daily-maintenance");
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -363,6 +363,9 @@ function ProfilePicker({
           <strong>{profile.name}</strong>
           <span>{profile.description}</span>
           <small>{formatTaskMode(profile.defaultMode)} · {profile.writeEnabled ? "writes enabled" : "read only"}</small>
+          <small>
+            Linux · {profile.domains.map((domain) => linuxDomainLabels[domain.domainId]).join(", ")}
+          </small>
         </button>
       ))}
     </div>

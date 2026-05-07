@@ -22,7 +22,7 @@ The first usable version targets:
 - Fedora KDE / Fedora Workstation;
 - user-level system maintenance;
 - Codex CLI detection and setup;
-- built-in profiles: Workspace, Workstation Check, Config Drafts, Automation Drafts, User Services Drafts;
+- Linux-only domain model with built-in profiles: Daily Maintenance, Dev Environment, Service Debugging, Package Maintenance, Deep System Review;
 - Diagnose, Patch, and Suggested Commands modes;
 - PTY-backed terminal panel;
 - task history with virtualized long-session output;

@@ -1,7 +1,29 @@
+export type LinuxDomainId =
+  | "user-config"
+  | "user-scripts"
+  | "user-services"
+  | "packages"
+  | "toolchains"
+  | "system-services"
+  | "logs"
+  | "storage"
+  | "network"
+  | "security"
+  | "boot-kernel";
+
+export type DomainAccess = "read" | "draft" | "plan";
+
+export type ProfileDomain = {
+  domainId: LinuxDomainId;
+  access: DomainAccess;
+};
+
 export type TaskProfile = {
   id: string;
   name: string;
   description: string;
+  platform: "linux";
+  domains: ProfileDomain[];
   defaultMode: "diagnose" | "patch" | "suggest_commands";
   cwd: string;
   writeEnabled: boolean;
