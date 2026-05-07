@@ -26,6 +26,12 @@ const initialEventPageSize = 160;
 const initialConversationCharTarget = 3200;
 const maxInitialEventWindow = 420;
 type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
+type SessionViewCache = {
+  contextSnapshots: ContextSnapshot[];
+  eventOffset: number;
+  logs: TaskLogLine[];
+  status: TaskStatus;
+};
 
 export function TaskRunner({
   profile,
@@ -50,6 +56,7 @@ export function TaskRunner({
   const [composerMenu, setComposerMenu] = useState<{ x: number; y: number }>();
   const activeTaskIdRef = useRef<string | undefined>(undefined);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const sessionCacheRef = useRef<Map<string, SessionViewCache>>(new Map());
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
@@ -74,7 +81,7 @@ export function TaskRunner({
   const sessionTokenEstimate = useMemo(() => estimateSessionTokens(chatLogs, contextSnapshots), [chatLogs, contextSnapshots]);
   const executionItems = useMemo(() => buildExecutionTimeline(toolLogs), [toolLogs]);
 
-  const loadLatestEvents = useCallback(async (nextTaskId: string) => {
+  const loadLatestEvents = useCallback(async (nextTaskId: string, options?: { background?: boolean }) => {
     const firstPage = await listTaskEvents(nextTaskId, 0, 1);
     let offset = Math.max(0, firstPage.total - initialEventPageSize);
     let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
@@ -91,11 +98,24 @@ export function TaskRunner({
       offset = nextPage.offset;
     }
 
+    if (activeTaskIdRef.current !== nextTaskId) return;
+
+    const nextLogs = eventsToLogs(events);
+    const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
+    const cached = sessionCacheRef.current.get(nextTaskId);
+    const mergedLogs = options?.background && cached ? mergeLogWindows(cached.logs, nextLogs) : nextLogs;
+    sessionCacheRef.current.set(nextTaskId, {
+      contextSnapshots: cached?.contextSnapshots ?? [],
+      eventOffset: Math.min(offset, cached?.eventOffset ?? offset),
+      logs: mergedLogs,
+      status: nextStatus,
+    });
+
     activeTaskIdRef.current = nextTaskId;
     setTaskId(nextTaskId);
-    setEventOffset(offset);
-    setStatus([...events].reverse().find((event) => event.status)?.status ?? "idle");
-    setLogs(eventsToLogs(events));
+    setEventOffset(Math.min(offset, cached?.eventOffset ?? offset));
+    setStatus(nextStatus);
+    setLogs(mergedLogs);
   }, []);
 
   const loadOlderEvents = useCallback(async () => {
@@ -117,9 +137,18 @@ export function TaskRunner({
     let removeListener: (() => void) | undefined;
 
     listen<TaskEvent>("task://event", (event) => {
-      if (!isMounted || event.payload.taskId !== activeTaskIdRef.current) return;
-
       const payload = event.payload;
+      const cached = sessionCacheRef.current.get(payload.taskId);
+      if (cached) {
+        sessionCacheRef.current.set(payload.taskId, {
+          ...cached,
+          logs: payload.text ? appendEventLog(cached.logs, payload) : cached.logs,
+          status: payload.status ?? cached.status,
+        });
+      }
+
+      if (!isMounted || payload.taskId !== activeTaskIdRef.current) return;
+
       if (payload.status) setStatus(payload.status);
       if (payload.event === "file_changed" || payload.event === "diff_ready" || payload.event === "rolled_back") {
         void refetchChangedFiles();
@@ -136,22 +165,7 @@ export function TaskRunner({
       }
 
       if (payload.text) {
-        setLogs((currentLogs) => {
-          if (
-            payload.event === "user_message" &&
-            currentLogs.some((log) => log.source === "user" && log.text === payload.text)
-          ) {
-            return currentLogs;
-          }
-          return [
-            ...currentLogs.slice(-5000),
-            {
-              id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
-              source: logSource(payload.event),
-              text: payload.text ?? "",
-            },
-          ];
-        });
+        setLogs((currentLogs) => appendEventLog(currentLogs, payload));
       }
     }).then((unsubscribe) => {
       removeListener = unsubscribe;
@@ -174,10 +188,34 @@ export function TaskRunner({
       setPrompt(readPromptDraft(undefined));
       return;
     }
+    activeTaskIdRef.current = selectedTaskId;
+    setTaskId(selectedTaskId);
     setPrompt(readPromptDraft(selectedTaskId));
+    const cached = sessionCacheRef.current.get(selectedTaskId);
+    if (cached) {
+      setStatus(cached.status);
+      setLogs(cached.logs);
+      setEventOffset(cached.eventOffset);
+      setContextSnapshots(cached.contextSnapshots);
+      void loadLatestEvents(selectedTaskId, { background: true });
+      return;
+    }
+    setStatus("idle");
+    setLogs([]);
+    setEventOffset(0);
     setContextSnapshots([]);
     void loadLatestEvents(selectedTaskId);
   }, [loadLatestEvents, selectedTaskId]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    sessionCacheRef.current.set(taskId, {
+      contextSnapshots,
+      eventOffset,
+      logs,
+      status,
+    });
+  }, [contextSnapshots, eventOffset, logs, status, taskId]);
 
   useEffect(() => {
     if (!composerMenu) return;
@@ -710,6 +748,24 @@ function eventsToLogs(events: Awaited<ReturnType<typeof listTaskEvents>>["events
     source: event.source,
     text: event.text ?? event.textPreview ?? event.payloadPath ?? event.event,
   }));
+}
+
+function appendEventLog(currentLogs: TaskLogLine[], payload: TaskEvent) {
+  if (!payload.text) return currentLogs;
+  if (
+    payload.event === "user_message" &&
+    currentLogs.some((log) => log.source === "user" && log.text === payload.text)
+  ) {
+    return currentLogs;
+  }
+  return [
+    ...currentLogs.slice(-5000),
+    {
+      id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
+      source: logSource(payload.event),
+      text: payload.text,
+    },
+  ];
 }
 
 function countConversationCharacters(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
