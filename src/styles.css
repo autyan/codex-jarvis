@@ -1047,16 +1047,23 @@ textarea {
   color: #8a4b1f;
 }
 
+.settings-view {
+  min-width: 0;
+}
+
 .settings-grid {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
 }
 
 .settings-card {
   background: #252526;
   border: 1px solid #3c3c3c;
   border-radius: 4px;
+  min-width: 0;
+  overflow: hidden;
   padding: 10px;
 }
 
@@ -1073,8 +1080,34 @@ textarea {
   margin: 0 0 8px;
 }
 
+.settings-card dl {
+  gap: 7px;
+}
+
+.settings-card dl div {
+  align-items: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(104px, 34%) minmax(0, 1fr);
+  justify-content: initial;
+}
+
+.settings-card dt {
+  min-width: 0;
+}
+
 .settings-card dd {
+  min-width: 0;
   overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.settings-card-wide dl div {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+
+.settings-card-wide dd {
+  text-align: left;
 }
 
 .settings-actions {
@@ -1128,12 +1161,33 @@ textarea {
 
 .settings-form-grid select,
 .sudo-password-field input {
+  appearance: none;
   background: #1e1e1e;
   border: 1px solid #3c3c3c;
   border-radius: 3px;
+  color-scheme: dark;
   color: #d4d4d4;
   min-height: 28px;
+  min-width: 0;
   padding: 4px 8px;
+  width: 100%;
+}
+
+.settings-form-grid select {
+  background-image:
+    linear-gradient(45deg, transparent 50%, #d4d4d4 50%),
+    linear-gradient(135deg, #d4d4d4 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 12px,
+    calc(100% - 9px) 12px;
+  background-repeat: no-repeat;
+  background-size: 6px 6px;
+  padding-right: 28px;
+}
+
+.settings-form-grid option {
+  background: #1e1e1e;
+  color: #d4d4d4;
 }
 
 .settings-form-grid select:focus,
@@ -1242,7 +1296,8 @@ textarea {
   color: #d4d4d4;
   max-height: calc(100vh - 44px);
   max-width: 900px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 10px;
   width: min(900px, 100%);
 }
