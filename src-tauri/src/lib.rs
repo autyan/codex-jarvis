@@ -421,7 +421,7 @@ fn start_diagnose_task(
     let codex_reasoning_effort = configured_reasoning_effort(request.codex_reasoning_effort);
     let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
-    persist_task_title_if_missing(&task_id, &user_message);
+    persist_placeholder_title_if_missing(&task_id);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
@@ -570,7 +570,7 @@ fn start_patch_task(
     let codex_reasoning_effort = configured_reasoning_effort(request.codex_reasoning_effort);
     let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
-    persist_task_title_if_missing(&task_id, &user_message);
+    persist_placeholder_title_if_missing(&task_id);
     let task_workspace = ensure_task_workspace(&task_id, &profile)?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
     let registry = running_tasks.inner().clone();
@@ -1830,6 +1830,9 @@ Task profile:\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
 Proposal cache:\n\
+If this is the first meaningful turn of the session, also include one machine-readable title line:\n\
+JARVIS_SESSION_TITLE: <short 3-8 word title>\n\
+The title should summarize the user's maintenance intent, not copy the prompt verbatim.\n\
 When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
 JARVIS_PROPOSAL_BEGIN\n\
 ## Summary\n\
@@ -1897,6 +1900,9 @@ Task profile:\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
 Proposal cache:\n\
+If this is the first meaningful turn of the session, also include one machine-readable title line:\n\
+JARVIS_SESSION_TITLE: <short 3-8 word title>\n\
+The title should summarize the user's maintenance intent, not copy the prompt verbatim.\n\
 When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
 JARVIS_PROPOSAL_BEGIN\n\
 ## Summary\n\
@@ -2049,6 +2055,20 @@ where
         for line in BufReader::new(reader).lines() {
             if let Ok(line) = line {
                 if event == "stdout" {
+                    if let Some(title) = parse_session_title_line(&line) {
+                        persist_task_title_from_codex(&task_id, &title);
+                        emit_task_event(
+                            &app,
+                            TaskEvent {
+                                task_id: task_id.clone(),
+                                event: "title_updated",
+                                text: Some(title),
+                                status: Some("running".to_string()),
+                                exit_code: None,
+                            },
+                        );
+                        continue;
+                    }
                     if let Some(request) = parse_sudo_request_line(&task_id, &line) {
                         persist_pending_sudo_request(&request);
                         let text = serde_json::to_string(&request).unwrap_or_else(|_| line.clone());
@@ -2109,6 +2129,11 @@ fn parse_sudo_request_line(task_id: &str, line: &str) -> Option<PendingSudoReque
         commands: request.commands,
         created_at: now_millis(),
     })
+}
+
+fn parse_session_title_line(line: &str) -> Option<String> {
+    let title = line.trim().strip_prefix("JARVIS_SESSION_TITLE:")?.trim();
+    sanitize_session_title(title)
 }
 
 fn parse_proposal_line(task_id: &str, line: &str) -> Option<ProposalState> {
@@ -2335,6 +2360,10 @@ fn persist_task_event(event: &TaskEvent) {
                 append_file(task_dir.join("proposal-events.log"), text);
                 append_file(task_dir.join("proposal-events.log"), "\n");
             }
+            "title_updated" => {
+                append_file(task_dir.join("system.log"), text);
+                append_file(task_dir.join("system.log"), "\n");
+            }
             "stderr" | "task_failed" => {
                 append_file(task_dir.join("stderr.log"), text);
                 append_file(task_dir.join("stderr.log"), "\n");
@@ -2432,7 +2461,7 @@ fn runtime_read_paths(profile: &TaskProfile, task_workspace: &Path) -> Vec<Strin
     paths
 }
 
-fn persist_task_title_if_missing(task_id: &str, prompt: &str) {
+fn persist_placeholder_title_if_missing(task_id: &str) {
     let Some(task_dir) = task_data_dir(task_id) else {
         return;
     };
@@ -2441,8 +2470,7 @@ fn persist_task_title_if_missing(task_id: &str, prompt: &str) {
     if title_path.exists() {
         return;
     }
-    let title = session_title_from_prompt(prompt);
-    let _ = fs::write(title_path, title);
+    let _ = fs::write(title_path, "Untitled maintenance task");
 }
 
 fn read_task_title(task_dir: &Path) -> Option<String> {
@@ -2452,17 +2480,28 @@ fn read_task_title(task_dir: &Path) -> Option<String> {
         .filter(|title| !title.is_empty())
 }
 
-fn session_title_from_prompt(prompt: &str) -> String {
-    let compact = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut title = compact.chars().take(32).collect::<String>();
-    if compact.chars().count() > 32 {
+fn persist_task_title_from_codex(task_id: &str, title: &str) {
+    let Some(title) = sanitize_session_title(title) else {
+        return;
+    };
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&task_dir);
+    let _ = fs::write(task_dir.join("title.txt"), title);
+}
+
+fn sanitize_session_title(title: &str) -> Option<String> {
+    let compact = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let compact = compact.trim_matches(['"', '\'', '`', '#', ':', '-']).trim();
+    if compact.is_empty() {
+        return None;
+    }
+    let mut title = compact.chars().take(48).collect::<String>();
+    if compact.chars().count() > 48 {
         title.push_str("...");
     }
-    if title.is_empty() {
-        "New session".to_string()
-    } else {
-        title
-    }
+    Some(title)
 }
 
 fn append_file(path: PathBuf, text: &str) {
@@ -2693,6 +2732,7 @@ fn event_source(event: &str) -> &'static str {
         "stdout" => "assistant",
         "execution_output" => "stdout",
         "proposal_updated" => "system",
+        "title_updated" => "system",
         "stderr" | "task_failed" => "stderr",
         _ => "system",
     }

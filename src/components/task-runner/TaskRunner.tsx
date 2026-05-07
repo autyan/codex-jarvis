@@ -252,7 +252,10 @@ export function TaskRunner({
             <h2>{displayTitle}</h2>
             <span>{taskId ?? `${profile.name} profile`}</span>
           </div>
-          <div className={`task-status status-${status}`}>{statusLabel}</div>
+          <div className="task-status-group">
+            {isActive ? <WorkingTicker status={status} /> : null}
+            <div className={`task-status status-${status}`}>{statusLabel}</div>
+          </div>
         </div>
 
         <VirtualLog
@@ -330,6 +333,25 @@ export function TaskRunner({
         contextSnapshots={contextSnapshots}
       />
     </section>
+  );
+}
+
+function WorkingTicker({ status }: { status: TaskStatus }) {
+  const messages = useMemo(() => workingMessages(status), [status]);
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    setIndex(0);
+    const timer = window.setInterval(() => {
+      setIndex((current) => (current + 1) % messages.length);
+    }, 1400);
+    return () => window.clearInterval(timer);
+  }, [messages]);
+
+  return (
+    <div className="working-ticker" aria-live="polite">
+      <span>{messages[index]}</span>
+    </div>
   );
 }
 
@@ -620,6 +642,19 @@ function clearPromptDraft(taskId?: string) {
   localStorage.removeItem(promptDraftKey(taskId));
 }
 
+function workingMessages(status: TaskStatus) {
+  if (status === "context_collected") {
+    return ["Reading context", "Checking profile boundaries", "Preparing response"];
+  }
+  if (status === "snapshot_created") {
+    return ["Capturing snapshot", "Watching proposal files", "Preparing diff"];
+  }
+  if (status === "starting") {
+    return ["Starting Codex", "Opening session context", "Preparing tools"];
+  }
+  return ["Codex is working", "Inspecting workspace", "Updating side tools", "Streaming response"];
+}
+
 function estimateTokenUsage(chatLogs: TaskLogLine[], attachedContext?: string) {
   const textSize =
     chatLogs.slice(-24).reduce((total, log) => total + log.text.length, 0) + (attachedContext?.length ?? 0);
@@ -762,6 +797,7 @@ function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
   if (event === "stdout") return "assistant";
   if (event === "execution_output") return "stdout";
   if (event === "proposal_updated") return "system";
+  if (event === "title_updated") return "system";
   if (event === "stderr" || event === "task_failed") return "stderr";
   return "system";
 }

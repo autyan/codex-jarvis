@@ -453,6 +453,43 @@ select {
   margin-bottom: 8px;
 }
 
+.task-status-group {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.working-ticker {
+  color: #9cdcfe;
+  font-size: 11px;
+  min-width: 132px;
+  overflow: hidden;
+  text-align: right;
+}
+
+.working-ticker span {
+  animation: working-ticker-fade 1.4s ease-in-out infinite;
+  color: inherit;
+}
+
+@keyframes working-ticker-fade {
+  0% {
+    opacity: 0.25;
+    transform: translateY(2px);
+  }
+
+  35%,
+  75% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0.25;
+    transform: translateY(-2px);
+  }
+}
+
 .section-heading span {
   color: #969696;
 }

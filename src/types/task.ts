@@ -38,6 +38,7 @@ export type TaskEvent = {
     | "stderr"
     | "sudo_request"
     | "proposal_updated"
+    | "title_updated"
     | "file_changed"
     | "diff_ready"
     | "rolled_back"
