@@ -1,4 +1,3 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { TaskLogLine } from "../../types/task";
 
@@ -15,12 +14,6 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
   const parentRef = useRef<HTMLDivElement>(null);
   const pendingScrollHeightRef = useRef<number | undefined>(undefined);
   const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
-  const rowVirtualizer = useVirtualizer({
-    count: conversationLogs.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 96,
-    overscan: 8,
-  });
 
   useLayoutEffect(() => {
     const root = parentRef.current;
@@ -60,29 +53,13 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
       {conversationLogs.length ? (
         <>
           {isLoadingOlder ? <div className="history-window-status">Loading older messages...</div> : null}
-          <div
-            className="virtual-log-inner"
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-              const line = conversationLogs[virtualItem.index];
-              return (
-                <article
-                  key={line.id}
-                  className={`chat-message role-${line.source}`}
-                  ref={rowVirtualizer.measureElement}
-                  data-index={virtualItem.index}
-                  style={{
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
-                  <span>{line.source === "user" ? "You" : "Codex"}</span>
-                  <pre>{line.text}</pre>
-                </article>
-              );
-            })}
+          <div className="chat-log-flow">
+            {conversationLogs.map((line) => (
+              <article key={line.id} className={`chat-message role-${line.source}`}>
+                <span>{line.source === "user" ? "You" : "Codex"}</span>
+                <pre>{line.text}</pre>
+              </article>
+            ))}
           </div>
         </>
       ) : (

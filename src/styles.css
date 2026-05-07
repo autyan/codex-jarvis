@@ -990,8 +990,9 @@ textarea {
   color: #6f6f6f;
 }
 
-.chat-output {
-  position: relative;
+.chat-log-flow {
+  display: grid;
+  gap: 2px;
 }
 
 .chat-message {
@@ -1000,11 +1001,7 @@ textarea {
   border-radius: 4px;
   display: grid;
   gap: 5px;
-  left: 0;
   padding: 9px 10px;
-  position: absolute;
-  right: 0;
-  top: 0;
 }
 
 .chat-message.role-user {
@@ -1107,11 +1104,6 @@ textarea {
 .virtual-log {
   display: block;
   position: relative;
-}
-
-.virtual-log-inner {
-  position: relative;
-  width: 100%;
 }
 
 .history-window-status {
