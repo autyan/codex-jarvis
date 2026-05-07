@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
-import { lazy, Suspense, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
 import { deleteTask, listRecentTasks } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
@@ -52,6 +52,15 @@ export function App() {
   const codexReady = setupStatus === "ready";
   const pinnedTasks = (recentTasksQuery.data ?? []).filter((task) => pinnedTaskIds.includes(task.taskId));
   const recentTasks = (recentTasksQuery.data ?? []).filter((task) => !pinnedTaskIds.includes(task.taskId));
+
+  useEffect(() => {
+    function disableDefaultContextMenu(event: globalThis.MouseEvent) {
+      event.preventDefault();
+    }
+
+    document.addEventListener("contextmenu", disableDefaultContextMenu, { capture: true });
+    return () => document.removeEventListener("contextmenu", disableDefaultContextMenu, { capture: true });
+  }, []);
 
   function togglePin(taskId: string) {
     setPinnedTaskIds((current) =>
