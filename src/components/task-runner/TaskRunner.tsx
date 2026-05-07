@@ -25,6 +25,7 @@ const olderEventPageSize = 180;
 const initialEventPageSize = 160;
 const initialConversationCharTarget = 3200;
 const maxInitialEventWindow = 420;
+const minInitialUserMessages = 2;
 const maxCachedSessionWindows = 8;
 type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
 type SessionViewCache = {
@@ -90,11 +91,7 @@ export function TaskRunner({
       let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
       let events = page.events;
 
-      while (
-        offset > 0 &&
-        events.length < maxInitialEventWindow &&
-        countConversationCharacters(events) < initialConversationCharTarget
-      ) {
+      while (shouldLoadMoreInitialEvents(offset, events)) {
         const nextOffset = Math.max(0, offset - initialEventPageSize);
         const nextPage = await listTaskEvents(nextTaskId, nextOffset, offset - nextOffset);
         events = [...nextPage.events, ...events];
@@ -797,6 +794,22 @@ function countConversationCharacters(events: Awaited<ReturnType<typeof listTaskE
     if (event.source !== "user" && event.source !== "assistant") return total;
     return total + (event.text?.length ?? event.textPreview?.length ?? 0);
   }, 0);
+}
+
+function shouldLoadMoreInitialEvents(offset: number, events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
+  if (offset <= 0 || events.length >= maxInitialEventWindow) return false;
+  if (countConversationCharacters(events) < initialConversationCharTarget) return true;
+  if (countUserMessages(events) < minInitialUserMessages) return true;
+  return startsInsideAssistantReply(events);
+}
+
+function countUserMessages(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
+  return events.filter((event) => event.source === "user").length;
+}
+
+function startsInsideAssistantReply(events: Awaited<ReturnType<typeof listTaskEvents>>["events"]) {
+  const firstConversationEvent = events.find((event) => event.source === "user" || event.source === "assistant");
+  return firstConversationEvent?.source === "assistant";
 }
 
 function mergeLogWindows(olderLogs: TaskLogLine[], currentLogs: TaskLogLine[]) {
