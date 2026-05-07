@@ -34,6 +34,8 @@ struct CodexCliInfo {
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
     codex_cli_path: Option<String>,
+    #[serde(default)]
+    sudo_flow_enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -217,6 +219,48 @@ struct TerminalEvent {
     exit_code: Option<i32>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SudoRequestPayload {
+    reason: String,
+    domain: String,
+    risk: String,
+    commands: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingSudoRequest {
+    request_id: String,
+    task_id: String,
+    reason: String,
+    domain: String,
+    risk: String,
+    commands: Vec<String>,
+    created_at: u128,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SudoAuditRecord {
+    request_id: String,
+    task_id: String,
+    decision: String,
+    domain: String,
+    risk: String,
+    commands: Vec<String>,
+    decided_at: u128,
+    exit_code: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SudoDecisionResult {
+    task_id: String,
+    request_id: String,
+    exit_code: Option<i32>,
+}
+
 #[tauri::command]
 fn detect_codex_cli() -> CodexCliInfo {
     let Some(path) = configured_codex_cli_path() else {
@@ -243,6 +287,19 @@ fn set_codex_cli_path(request: SetCodexCliPathRequest) -> Result<CodexCliInfo, S
     settings.codex_cli_path = Some(path);
     write_app_settings(&settings)?;
     Ok(info)
+}
+
+#[tauri::command]
+fn get_app_settings() -> AppSettings {
+    read_app_settings()
+}
+
+#[tauri::command]
+fn set_sudo_flow_enabled(enabled: bool) -> Result<AppSettings, String> {
+    let mut settings = read_app_settings();
+    settings.sudo_flow_enabled = enabled;
+    write_app_settings(&settings)?;
+    Ok(settings)
 }
 
 fn validate_codex_cli_path(path: &str) -> CodexCliInfo {
@@ -784,6 +841,7 @@ fn apply_task_review(
     let profile = profile_by_id(&metadata.profile_id)
         .ok_or_else(|| format!("Unknown profile: {}", metadata.profile_id))?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
+    let sudo_flow_enabled = read_app_settings().sudo_flow_enabled;
     if running_tasks
         .lock()
         .map_err(|_| "Task registry is unavailable".to_string())?
@@ -826,9 +884,118 @@ fn apply_task_review(
         task_workspace,
         codex_cli,
         proposal,
+        sudo_flow_enabled,
     );
 
     Ok(result)
+}
+
+#[tauri::command]
+fn decide_sudo_request(app: AppHandle, task_id: String, request_id: String, allow: bool) -> Result<SudoDecisionResult, String> {
+    let request = read_pending_sudo_request(&task_id, &request_id)?;
+
+    if !allow {
+        write_sudo_audit(&request, "deny", None)?;
+        remove_pending_sudo_request(&task_id, &request_id);
+        emit_task_event(
+            &app,
+            TaskEvent {
+                task_id: task_id.clone(),
+                event: "task_finished",
+                text: Some(format!("Sudo request denied: {}", request.reason)),
+                status: Some("finished".to_string()),
+                exit_code: None,
+            },
+        );
+        return Ok(SudoDecisionResult {
+            task_id,
+            request_id,
+            exit_code: None,
+        });
+    }
+
+    validate_sudo_request(&request)?;
+    write_sudo_audit(&request, "allow_once", None)?;
+
+    emit_task_event(
+        &app,
+        TaskEvent {
+            task_id: task_id.clone(),
+            event: "task_started",
+            text: Some(format!("Sudo allow-once approved: {}", request.reason)),
+            status: Some("running".to_string()),
+            exit_code: None,
+        },
+    );
+
+    let mut final_exit_code = Some(0);
+    for command in &request.commands {
+        emit_task_event(
+            &app,
+            TaskEvent {
+                task_id: task_id.clone(),
+                event: "stdout",
+                text: Some(format!("$ sudo -n {command}")),
+                status: Some("running".to_string()),
+                exit_code: None,
+            },
+        );
+        let output = run_approved_sudo_command(command)?;
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stdout.is_empty() {
+            emit_task_event(
+                &app,
+                TaskEvent {
+                    task_id: task_id.clone(),
+                    event: "stdout",
+                    text: Some(stdout),
+                    status: Some("running".to_string()),
+                    exit_code: None,
+                },
+            );
+        }
+        if !stderr.is_empty() {
+            emit_task_event(
+                &app,
+                TaskEvent {
+                    task_id: task_id.clone(),
+                    event: "stderr",
+                    text: Some(stderr),
+                    status: Some("running".to_string()),
+                    exit_code: output.status.code(),
+                },
+            );
+        }
+        final_exit_code = output.status.code();
+        if !output.status.success() {
+            break;
+        }
+    }
+
+    write_sudo_audit(&request, "executed", final_exit_code)?;
+    remove_pending_sudo_request(&task_id, &request_id);
+    let success = final_exit_code == Some(0);
+    emit_task_event(
+        &app,
+        TaskEvent {
+            task_id: task_id.clone(),
+            event: if success { "task_finished" } else { "task_failed" },
+            text: Some(if success {
+                "Sudo request execution finished".to_string()
+            } else {
+                "Sudo request execution failed. If sudo needs a password, open Terminal and run the shown command manually.".to_string()
+            }),
+            status: Some(if success { "finished" } else { "failed" }.to_string()),
+            exit_code: final_exit_code,
+        },
+    );
+
+    Ok(SudoDecisionResult {
+        task_id,
+        request_id,
+        exit_code: final_exit_code,
+    })
 }
 
 #[tauri::command]
@@ -1303,6 +1470,7 @@ fn spawn_apply_execution(
     task_workspace: PathBuf,
     codex_cli: String,
     proposal: String,
+    sudo_flow_enabled: bool,
 ) {
     thread::spawn(move || {
         let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
@@ -1327,6 +1495,7 @@ fn spawn_apply_execution(
             &runtime_write_paths,
             &context,
             &proposal,
+            sudo_flow_enabled,
         );
         let mut command = Command::new(&codex_cli);
         command
@@ -1585,7 +1754,13 @@ fn build_apply_prompt(
     write_paths: &[String],
     context: &str,
     proposal: &str,
+    sudo_flow_enabled: bool,
 ) -> String {
+    let sudo_policy = if sudo_flow_enabled {
+        "Sudo flow is enabled. If the reviewed proposal requires a privileged operation, do not run sudo yourself. Instead output exactly one line beginning with `SUDO_REQUEST_JSON: ` followed by compact JSON with keys `reason`, `domain`, `risk`, and `commands`. Commands must omit the leading sudo. Example: SUDO_REQUEST_JSON: {\"reason\":\"Install OpenJDK\",\"domain\":\"packages\",\"risk\":\"package-install\",\"commands\":[\"dnf install java-25-openjdk-devel\"]}. After emitting a sudo request, stop."
+    } else {
+        "Sudo flow is disabled. Do not run sudo and do not emit SUDO_REQUEST_JSON. If privileged work is needed, report the exact manual command."
+    };
     format!(
         "You are applying an approved Codex Jarvis proposal for a Linux workstation maintenance task.\n\n\
 Task profile:\n\
@@ -1599,6 +1774,7 @@ Task profile:\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n\
 The user has clicked Apply. Execute the reviewed proposal now where it is allowed by the profile/domain boundary. You may run safe, non-privileged commands and write only inside the listed writable paths. Do not run sudo, package install/remove/update commands, service enable/disable commands, destructive file deletion, or boot/kernel/security changes unless the reviewed proposal contains the exact command and the profile domain allows direct execution. If an operation is outside the boundary, do not execute it; report the exact command or manual step needed.\n\n\
+Sudo policy:\n{sudo_policy}\n\n\
 Rules:\n\
 1. Treat the reviewed proposal below as the source of truth.\n\
 2. Respect the profile domains and forbidden paths.\n\
@@ -1630,6 +1806,7 @@ Reviewed proposal:\n{proposal}",
             .join("\n"),
         context = context,
         proposal = proposal,
+        sudo_policy = sudo_policy,
     )
 }
 
@@ -1675,6 +1852,23 @@ where
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             if let Ok(line) = line {
+                if event == "stdout" {
+                    if let Some(request) = parse_sudo_request_line(&task_id, &line) {
+                        persist_pending_sudo_request(&request);
+                        let text = serde_json::to_string(&request).unwrap_or_else(|_| line.clone());
+                        emit_task_event(
+                            &app,
+                            TaskEvent {
+                                task_id: task_id.clone(),
+                                event: "sudo_request",
+                                text: Some(text),
+                                status: Some("awaiting_review".to_string()),
+                                exit_code: None,
+                            },
+                        );
+                        continue;
+                    }
+                }
                 emit_task_event(
                     &app,
                     TaskEvent {
@@ -1688,6 +1882,121 @@ where
             }
         }
     });
+}
+
+fn parse_sudo_request_line(task_id: &str, line: &str) -> Option<PendingSudoRequest> {
+    let payload = line.trim().strip_prefix("SUDO_REQUEST_JSON:")?.trim();
+    let request = serde_json::from_str::<SudoRequestPayload>(payload).ok()?;
+    if request.commands.is_empty() {
+        return None;
+    }
+    Some(PendingSudoRequest {
+        request_id: format!("sudo_{}", now_millis()),
+        task_id: task_id.to_string(),
+        reason: request.reason,
+        domain: request.domain,
+        risk: request.risk,
+        commands: request.commands,
+        created_at: now_millis(),
+    })
+}
+
+fn persist_pending_sudo_request(request: &PendingSudoRequest) {
+    let Some(task_dir) = task_data_dir(&request.task_id) else {
+        return;
+    };
+    let dir = task_dir.join("sudo-requests");
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(content) = serde_json::to_string_pretty(request) {
+        let _ = fs::write(dir.join(format!("{}.json", request.request_id)), content);
+    }
+}
+
+fn read_pending_sudo_request(task_id: &str, request_id: &str) -> Result<PendingSudoRequest, String> {
+    let path = sudo_request_path(task_id, request_id)?;
+    let content = fs::read_to_string(path).map_err(|error| format!("Could not read sudo request: {error}"))?;
+    serde_json::from_str(&content).map_err(|error| format!("Could not parse sudo request: {error}"))
+}
+
+fn remove_pending_sudo_request(task_id: &str, request_id: &str) {
+    if let Ok(path) = sudo_request_path(task_id, request_id) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn sudo_request_path(task_id: &str, request_id: &str) -> Result<PathBuf, String> {
+    let task_dir = task_data_dir(task_id).ok_or_else(|| "Could not resolve task data directory".to_string())?;
+    Ok(task_dir.join("sudo-requests").join(format!("{request_id}.json")))
+}
+
+fn write_sudo_audit(request: &PendingSudoRequest, decision: &str, exit_code: Option<i32>) -> Result<(), String> {
+    let task_dir = task_data_dir(&request.task_id).ok_or_else(|| "Could not resolve task data directory".to_string())?;
+    let dir = task_dir.join("sudo-audit");
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let record = SudoAuditRecord {
+        request_id: request.request_id.clone(),
+        task_id: request.task_id.clone(),
+        decision: decision.to_string(),
+        domain: request.domain.clone(),
+        risk: request.risk.clone(),
+        commands: request.commands.clone(),
+        decided_at: now_millis(),
+        exit_code,
+    };
+    let content = serde_json::to_string_pretty(&record).map_err(|error| error.to_string())?;
+    fs::write(dir.join(format!("{}_{}.json", request.request_id, decision)), content).map_err(|error| error.to_string())
+}
+
+fn validate_sudo_request(request: &PendingSudoRequest) -> Result<(), String> {
+    if request.commands.is_empty() {
+        return Err("Sudo request has no commands".to_string());
+    }
+    for command in &request.commands {
+        validate_sudo_command(&request.domain, command)?;
+    }
+    Ok(())
+}
+
+fn validate_sudo_command(domain: &str, command: &str) -> Result<(), String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err("Empty sudo command".to_string());
+    }
+    if trimmed.starts_with("sudo ") || trimmed.contains('\n') {
+        return Err("Sudo commands must omit sudo and stay on one line".to_string());
+    }
+    let blocked = [";", "&&", "||", "|", ">", "<", "$(", "`"];
+    if blocked.iter().any(|token| trimmed.contains(token)) {
+        return Err(format!("Sudo command contains unsupported shell syntax: {trimmed}"));
+    }
+    let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["dnf", action, rest @ ..]
+            if domain == "packages" && matches!(*action, "install" | "remove" | "upgrade") && !rest.is_empty() =>
+        {
+            Ok(())
+        }
+        ["systemctl", action, rest @ ..]
+            if matches!(domain, "user-services" | "system-services")
+                && matches!(*action, "status" | "restart")
+                && !rest.is_empty() =>
+        {
+            Ok(())
+        }
+        _ => Err(format!("Sudo command is outside the current allowlist: {trimmed}")),
+    }
+}
+
+fn run_approved_sudo_command(command: &str) -> Result<std::process::Output, String> {
+    let parts = command.split_whitespace().collect::<Vec<_>>();
+    let mut sudo = Command::new("sudo");
+    sudo.arg("-n");
+    for part in parts {
+        sudo.arg(part);
+    }
+    sudo.stdin(Stdio::null()).output().map_err(|error| error.to_string())
 }
 
 fn emit_task_event(app: &AppHandle, event: TaskEvent) {
@@ -2123,6 +2432,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             detect_codex_cli,
             set_codex_cli_path,
+            get_app_settings,
+            set_sudo_flow_enabled,
             list_profiles,
             start_diagnose_task,
             start_patch_task,
@@ -2135,6 +2446,7 @@ pub fn run() {
             get_task_diff,
             read_changed_file,
             apply_task_review,
+            decide_sudo_request,
             rollback_task,
             start_terminal,
             write_terminal,

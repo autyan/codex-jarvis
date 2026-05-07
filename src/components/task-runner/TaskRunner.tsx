@@ -4,7 +4,7 @@ import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
-import type { PersistedTaskEvent, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+import type { PersistedTaskEvent, SudoRequest, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
@@ -13,6 +13,7 @@ type TaskRunnerProps = {
   selectedTaskTitle?: string;
   onTaskStarted: (taskId: string) => void;
   onOpenReview: () => void;
+  onSudoRequest: (request: SudoRequest) => void;
   attachedContext?: string;
   onClearAttachedContext: () => void;
 };
@@ -26,6 +27,7 @@ export function TaskRunner({
   selectedTaskTitle,
   onTaskStarted,
   onOpenReview,
+  onSudoRequest,
   attachedContext,
   onClearAttachedContext,
 }: TaskRunnerProps) {
@@ -87,6 +89,13 @@ export function TaskRunner({
       if (payload.event === "file_changed" || payload.event === "diff_ready" || payload.event === "rolled_back") {
         void refetchChangedFiles();
       }
+      if (payload.event === "sudo_request" && payload.text) {
+        try {
+          onSudoRequest(JSON.parse(payload.text) as SudoRequest);
+        } catch {
+          // Keep malformed sudo requests in the normal log; the backend also stores the raw event.
+        }
+      }
 
       if (payload.text) {
         setLogs((currentLogs) => {
@@ -114,7 +123,7 @@ export function TaskRunner({
       isMounted = false;
       removeListener?.();
     };
-  }, [refetchChangedFiles]);
+  }, [onSudoRequest, refetchChangedFiles]);
 
   useEffect(() => {
     if (!selectedTaskId) {

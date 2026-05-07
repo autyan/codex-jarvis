@@ -33,6 +33,7 @@ export type TaskEvent = {
     | "snapshot_created"
     | "stdout"
     | "stderr"
+    | "sudo_request"
     | "file_changed"
     | "diff_ready"
     | "rolled_back"
@@ -103,4 +104,20 @@ export type ApplyReviewResult = {
   taskId: string;
   accepted: string[];
   executionStarted: boolean;
+};
+
+export type SudoRequest = {
+  requestId: string;
+  taskId: string;
+  reason: string;
+  domain: string;
+  risk: string;
+  commands: string[];
+  createdAt: number;
+};
+
+export type SudoDecisionResult = {
+  taskId: string;
+  requestId: string;
+  exitCode?: number;
 };

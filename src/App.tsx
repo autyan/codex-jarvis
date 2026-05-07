@@ -2,16 +2,16 @@ import { AlertCircle, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Ter
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import { detectCodexCli } from "./api/codex";
-import { deleteTask, listChangedFiles, listRecentTasks, renameTask } from "./api/tasks";
+import { detectCodexCli, getAppSettings, setSudoFlowEnabled } from "./api/codex";
+import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { linuxDomainLabels, profiles } from "./data/profiles";
-import type { CodexSetupStatus } from "./types/codex";
+import type { AppSettings, CodexSetupStatus } from "./types/codex";
 import type { TaskProfile } from "./types/profile";
-import type { TaskSummary } from "./types/task";
+import type { SudoRequest, TaskSummary } from "./types/task";
 
 const TerminalView = lazy(() =>
   import("./components/terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
@@ -28,6 +28,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [pendingSudoRequest, setPendingSudoRequest] = useState<SudoRequest>();
   const [setupOpen, setSetupOpen] = useState(true);
   const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>([]);
   const codexQuery = useQuery({
@@ -38,6 +39,10 @@ export function App() {
     queryKey: ["recent-tasks", "sidebar"],
     queryFn: () => listRecentTasks(30),
     refetchInterval: 5000,
+  });
+  const appSettingsQuery = useQuery({
+    queryKey: ["app-settings"],
+    queryFn: getAppSettings,
   });
   const activeProfile = useMemo(
     () => profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0],
@@ -97,6 +102,26 @@ export function App() {
     if (!trimmedTitle) return;
     await renameTask(task.taskId, trimmedTitle);
     await recentTasksQuery.refetch();
+  }
+
+  async function handleSetSudoFlow(enabled: boolean) {
+    queryClient.setQueryData<AppSettings>(["app-settings"], (current) =>
+      current ? { ...current, sudoFlowEnabled: enabled } : { sudoFlowEnabled: enabled },
+    );
+    try {
+      const settings = await setSudoFlowEnabled(enabled);
+      queryClient.setQueryData(["app-settings"], settings);
+    } catch {
+      void appSettingsQuery.refetch();
+    }
+  }
+
+  async function handleSudoDecision(allow: boolean) {
+    if (!pendingSudoRequest) return;
+    const request = pendingSudoRequest;
+    setPendingSudoRequest(undefined);
+    await decideSudoRequest(request.taskId, request.requestId, allow);
+    void recentTasksQuery.refetch();
   }
 
   function startTerminalResize(event: MouseEvent<HTMLDivElement>) {
@@ -187,6 +212,7 @@ export function App() {
             selectedTaskTitle={activeTask?.title}
             onTaskStarted={(taskId) => setActiveTaskId(taskId)}
             onOpenReview={() => setReviewOpen(true)}
+            onSudoRequest={setPendingSudoRequest}
             attachedContext={attachedTerminalOutput}
             onClearAttachedContext={() => setAttachedTerminalOutput(undefined)}
           />
@@ -256,7 +282,12 @@ export function App() {
 
       {settingsOpen ? (
         <Modal title="Settings" onClose={() => setSettingsOpen(false)}>
-          <SettingsView codexInfo={codexQuery.data} profile={activeProfile} />
+          <SettingsView
+            codexInfo={codexQuery.data}
+            profile={activeProfile}
+            settings={appSettingsQuery.data}
+            onSetSudoFlow={handleSetSudoFlow}
+          />
         </Modal>
       ) : null}
 
@@ -271,7 +302,59 @@ export function App() {
           <ReviewView taskId={activeTaskId} sessionName={activeTask?.title} onClose={() => setReviewOpen(false)} />
         </Modal>
       ) : null}
+
+      {pendingSudoRequest ? (
+        <Modal title="Sudo Authorization" onClose={() => setPendingSudoRequest(undefined)}>
+          <SudoAuthorizationDialog
+            request={pendingSudoRequest}
+            onDeny={() => void handleSudoDecision(false)}
+            onAllow={() => void handleSudoDecision(true)}
+          />
+        </Modal>
+      ) : null}
     </div>
+  );
+}
+
+function SudoAuthorizationDialog({
+  request,
+  onDeny,
+  onAllow,
+}: {
+  request: SudoRequest;
+  onDeny: () => void;
+  onAllow: () => void;
+}) {
+  return (
+    <section className="sudo-dialog">
+      <div className="review-banner">
+        <strong>Codex requests sudo</strong>
+        <span>Approve only if these commands match the reviewed proposal.</span>
+      </div>
+      <dl>
+        <div>
+          <dt>Reason</dt>
+          <dd>{request.reason}</dd>
+        </div>
+        <div>
+          <dt>Domain</dt>
+          <dd>{request.domain}</dd>
+        </div>
+        <div>
+          <dt>Risk</dt>
+          <dd>{request.risk}</dd>
+        </div>
+      </dl>
+      <div className="sudo-command-list">
+        {request.commands.map((command) => (
+          <code key={command}>sudo -n {command}</code>
+        ))}
+      </div>
+      <div className="button-row">
+        <button className="secondary-action danger-action" onClick={onDeny}>Deny</button>
+        <button className="primary" onClick={onAllow}>Allow once</button>
+      </div>
+    </section>
   );
 }
 

@@ -1,15 +1,17 @@
 import { Database, History, MonitorCog, SlidersHorizontal, ShieldCheck, Terminal, Wrench } from "lucide-react";
 import { useMemo, useState } from "react";
 import { linuxDomainLabels } from "../../data/profiles";
-import type { CodexCliInfo } from "../../types/codex";
+import type { AppSettings, CodexCliInfo } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 
 type SettingsViewProps = {
   codexInfo?: CodexCliInfo;
   profile: TaskProfile;
+  settings?: AppSettings;
+  onSetSudoFlow: (enabled: boolean) => void;
 };
 
-export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
+export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow }: SettingsViewProps) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const profileJson = useMemo(() => JSON.stringify(profile, null, 2), [profile]);
   const [profileDraft, setProfileDraft] = useState(profileJson);
@@ -134,7 +136,7 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
           <dl>
             <div>
               <dt>Sudo</dt>
-              <dd>Blocked by app workflows</dd>
+              <dd>{settings?.sudoFlowEnabled ? "Flow enabled, approval required" : "Flow disabled"}</dd>
             </div>
             <div>
               <dt>Snapshots</dt>
@@ -149,6 +151,14 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
               <dd>{profile.writeEnabled ? "Profile-scoped writes" : "Read-only profile"}</dd>
             </div>
           </dl>
+          <div className="settings-actions">
+            <button
+              className={settings?.sudoFlowEnabled ? "secondary-action active-setting" : "secondary-action"}
+              onClick={() => onSetSudoFlow(!settings?.sudoFlowEnabled)}
+            >
+              {settings?.sudoFlowEnabled ? "Disable sudo flow" : "Enable sudo flow"}
+            </button>
+          </div>
         </section>
 
         <section className="settings-card">

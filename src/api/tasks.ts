@@ -7,6 +7,7 @@ import type {
   StartDiagnoseTaskRequest,
   StartPatchTaskRequest,
   StartTaskResponse,
+  SudoDecisionResult,
   TaskEventPage,
   TaskSummary,
 } from "../types/task";
@@ -53,6 +54,10 @@ export function readChangedFile(taskId: string, path: string) {
 
 export function applyTaskReview(taskId: string) {
   return invoke<ApplyReviewResult>("apply_task_review", { taskId });
+}
+
+export function decideSudoRequest(taskId: string, requestId: string, allow: boolean) {
+  return invoke<SudoDecisionResult>("decide_sudo_request", { taskId, requestId, allow });
 }
 
 export function rollbackTask(taskId: string) {

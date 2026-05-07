@@ -1103,6 +1103,11 @@ textarea {
   opacity: 1;
 }
 
+.settings-actions .active-setting {
+  border-color: #7a4a2f;
+  color: #d7ba7d;
+}
+
 .profile-edit-button {
   background: #0e639c;
   border: 1px solid #1177bb;
@@ -1228,6 +1233,40 @@ textarea {
   border: 0;
   min-height: 0;
   padding: 0;
+}
+
+.sudo-dialog {
+  display: grid;
+  gap: 10px;
+}
+
+.sudo-dialog dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.sudo-dialog dt {
+  color: #969696;
+}
+
+.sudo-dialog dd {
+  color: #d4d4d4;
+  margin: 0;
+}
+
+.sudo-command-list {
+  background: #181818;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.sudo-command-list code {
+  color: #dcdcaa;
+  overflow-wrap: anywhere;
 }
 
 .profile-picker {
