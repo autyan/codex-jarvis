@@ -4,7 +4,7 @@
   color: #d4d4d4;
   background: #1e1e1e;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   font-size: 13px;
 }
 
@@ -12,8 +12,15 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 button,
@@ -28,7 +35,9 @@ textarea {
     "side main terminal" minmax(0, 1fr)
     "bottom bottom bottom" 24px
     / 220px minmax(200px, 1fr) 34px;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .app-shell.terminal-open {
@@ -160,6 +169,7 @@ textarea {
 }
 
 .sessions-sidebar {
+  min-height: 0;
   overflow: auto;
 }
 
@@ -245,6 +255,7 @@ textarea {
 .workspace {
   background: #1e1e1e;
   grid-area: main;
+  min-height: 0;
   min-width: 0;
   overflow: auto;
   padding: 10px;
@@ -282,7 +293,7 @@ textarea {
 
 .workspace-panel,
 .setup-view {
-  min-height: calc(100vh - 52px);
+  min-height: 0;
   padding: 10px;
 }
 
@@ -516,7 +527,7 @@ textarea {
 }
 
 .terminal-panel pre {
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   margin: 0;
   white-space: pre-wrap;
 }
@@ -552,6 +563,7 @@ textarea {
   background: #181818;
   border-left: 1px solid #3c3c3c;
   grid-area: terminal;
+  min-height: 0;
   min-width: 0;
   overflow: hidden;
   position: relative;
@@ -563,7 +575,7 @@ textarea {
 
 .terminal-dock .workspace-panel,
 .terminal-dock .terminal-workspace {
-  min-height: calc(100vh - 52px);
+  min-height: 0;
 }
 
 .terminal-resizer {
@@ -641,7 +653,7 @@ textarea {
 }
 
 .log-line pre {
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   margin: 0;
   overflow-x: auto;
   white-space: pre-wrap;
@@ -937,7 +949,7 @@ textarea {
   background: #181818;
   border-radius: 3px;
   color: #d4d4d4;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   height: calc(100vh - 120px);
   margin: 0;
   overflow: auto;

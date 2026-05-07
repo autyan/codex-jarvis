@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerm } from "@xterm/xterm";
+import type { IDisposable } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { closeTerminal, resizeTerminal, startTerminal, writeTerminal } from "../../api/terminal";
@@ -18,12 +19,16 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | undefined>(undefined);
   const terminalIdRef = useRef<string | undefined>(undefined);
+  const dataSubscriptionRef = useRef<IDisposable | undefined>(undefined);
+  const openingRef = useRef(false);
   const [status, setStatus] = useState<"idle" | "starting" | "running" | "closed" | "failed">("idle");
 
   useEffect(() => {
+    let isMounted = true;
     let removeListener: (() => void) | undefined;
 
     listen<TerminalEvent>("terminal://event", (event) => {
+      if (!isMounted) return;
       if (event.payload.terminalId !== terminalIdRef.current) return;
       if (event.payload.event === "terminal_output" && event.payload.data) {
         terminalRef.current?.write(event.payload.data);
@@ -32,12 +37,19 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
         setStatus("closed");
       }
     }).then((unsubscribe) => {
+      if (!isMounted) {
+        unsubscribe();
+        return;
+      }
       removeListener = unsubscribe;
       void openTerminal();
     });
 
     return () => {
+      isMounted = false;
       removeListener?.();
+      dataSubscriptionRef.current?.dispose();
+      dataSubscriptionRef.current = undefined;
       if (terminalIdRef.current) {
         void closeTerminal(terminalIdRef.current);
       }
@@ -46,7 +58,8 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
   }, []);
 
   async function openTerminal() {
-    if (terminalRef.current || status === "starting") return;
+    if (terminalRef.current || openingRef.current) return;
+    openingRef.current = true;
     setStatus("starting");
 
     const term = new XTerm({
@@ -61,13 +74,13 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
         cursor: "#d8b24a",
         selectionBackground: "#34524b",
       },
-      fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
+      fontFamily: '"Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", monospace',
       fontSize: 13,
     });
 
     terminalRef.current = term;
     term.open(containerRef.current!);
-    term.onData((data) => {
+    dataSubscriptionRef.current = term.onData((data) => {
       if (terminalIdRef.current) void writeTerminal(terminalIdRef.current, data);
     });
 
@@ -84,6 +97,8 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
     } catch (error) {
       setStatus("failed");
       term.writeln(`Failed to start terminal: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      openingRef.current = false;
     }
   }
 
@@ -92,6 +107,8 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
       await closeTerminal(terminalIdRef.current).catch(() => undefined);
     }
     terminalIdRef.current = undefined;
+    dataSubscriptionRef.current?.dispose();
+    dataSubscriptionRef.current = undefined;
     setStatus("closed");
     terminalRef.current?.dispose();
     terminalRef.current = undefined;
