@@ -825,26 +825,16 @@ textarea {
   width: 100%;
 }
 
-.load-older-button {
-  background: #252526;
-  border: 1px solid #3c3c3c;
-  border-radius: 3px;
-  color: #c8d4cf;
-  font: inherit;
-  margin-bottom: 6px;
-  min-height: 26px;
-  width: 100%;
+.history-window-sentinel {
+  height: 1px;
+  pointer-events: none;
 }
 
-.load-older-button:hover:not(:disabled) {
-  background: #2a2d2e;
-  border-color: #4b4b4b;
-  color: #ffffff;
-}
-
-.load-older-button:disabled {
-  color: #6f6f6f;
-  cursor: not-allowed;
+.history-window-status {
+  color: #969696;
+  font-size: 12px;
+  padding: 2px 0 8px;
+  text-align: center;
 }
 
 .history-event {

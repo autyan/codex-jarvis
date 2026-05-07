@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TaskLogLine } from "../../types/task";
 
 type VirtualLogProps = {
@@ -13,6 +13,7 @@ const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]
 
 export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const conversationLogs = useMemo(() => mergeConversationLogs(logs.filter((log) => conversationSources.has(log.source))), [logs]);
   const detailLogs = useMemo(() => logs.filter((log) => !conversationSources.has(log.source)), [logs]);
   const rowVirtualizer = useVirtualizer({
@@ -21,6 +22,27 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
     estimateSize: () => 96,
     overscan: 8,
   });
+
+  useEffect(() => {
+    const root = parentRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || !hasOlder) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && !isLoadingOlder) {
+          onLoadOlder?.();
+        }
+      },
+      {
+        root,
+        rootMargin: "96px 0px 0px 0px",
+        threshold: 0,
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasOlder, isLoadingOlder, onLoadOlder]);
 
   if (!logs.length) {
     return (
@@ -44,11 +66,8 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
       >
         {conversationLogs.length ? (
           <>
-            {hasOlder ? (
-              <button className="load-older-button" onClick={onLoadOlder} disabled={isLoadingOlder}>
-                {isLoadingOlder ? "Loading older messages..." : "Load older messages"}
-              </button>
-            ) : null}
+            <div ref={sentinelRef} className="history-window-sentinel" aria-hidden="true" />
+            {isLoadingOlder ? <div className="history-window-status">Loading older messages...</div> : null}
             <div
               className="virtual-log-inner"
               style={{
