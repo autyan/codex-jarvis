@@ -4,6 +4,7 @@ import type {
   ChangedFile,
   ChangedFileContent,
   PruneSessionsResult,
+  ProposalState,
   RollbackResult,
   StartDiagnoseTaskRequest,
   StartPatchTaskRequest,
@@ -51,6 +52,10 @@ export function listChangedFiles(taskId: string) {
 
 export function getTaskDiff(taskId: string) {
   return invoke<string>("get_task_diff", { taskId });
+}
+
+export function getTaskProposal(taskId: string) {
+  return invoke<ProposalState | null>("get_task_proposal", { taskId });
 }
 
 export function readChangedFile(taskId: string, path: string) {

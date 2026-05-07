@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, ChevronDown, ChevronRight, FileDiff, Gauge, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
+import { cancelTask, getTaskProposal, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { AppSettings } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 import type { PersistedTaskEvent, SudoRequest, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
@@ -53,7 +53,13 @@ export function TaskRunner({
     enabled: Boolean(taskId),
     refetchInterval: status === "awaiting_review" ? 1500 : false,
   });
-  const canApplyProposal = (changedFiles?.length ?? 0) > 0 && !isActive;
+  const { data: proposalState, refetch: refetchProposal } = useQuery({
+    queryKey: ["task-proposal", taskId],
+    queryFn: () => (taskId ? getTaskProposal(taskId) : null),
+    enabled: Boolean(taskId),
+    refetchInterval: isActive ? 2000 : false,
+  });
+  const canApplyProposal = Boolean(proposalState?.content) && !isActive;
   const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
   const hasOlderEvents = eventOffset > 0;
   const toolLogs = useMemo(() => logs.filter((log) => log.source !== "user" && log.source !== "assistant"), [logs]);
@@ -97,6 +103,9 @@ export function TaskRunner({
       if (payload.event === "file_changed" || payload.event === "diff_ready" || payload.event === "rolled_back") {
         void refetchChangedFiles();
       }
+      if (payload.event === "proposal_updated") {
+        void refetchProposal();
+      }
       if (payload.event === "sudo_request" && payload.text) {
         try {
           onSudoRequest(JSON.parse(payload.text) as SudoRequest);
@@ -131,7 +140,7 @@ export function TaskRunner({
       isMounted = false;
       removeListener?.();
     };
-  }, [onSudoRequest, refetchChangedFiles]);
+  }, [onSudoRequest, refetchChangedFiles, refetchProposal]);
 
   useEffect(() => {
     if (!selectedTaskId) {
@@ -302,6 +311,7 @@ export function TaskRunner({
         toolLogs={toolLogs}
         tokenEstimate={tokenEstimate}
         attachedContext={attachedContext}
+        proposal={proposalState?.content}
       />
     </section>
   );
@@ -322,6 +332,7 @@ function TaskSideTools({
   toolLogs,
   tokenEstimate,
   attachedContext,
+  proposal,
 }: {
   activeTool: ToolTab;
   onSelectTool: (tool: ToolTab) => void;
@@ -337,6 +348,7 @@ function TaskSideTools({
   toolLogs: TaskLogLine[];
   tokenEstimate: { label: string; approximateTokens: number; chatMessages: number };
   attachedContext?: string;
+  proposal?: string;
 }) {
   return (
     <aside className="task-side-tools">
@@ -349,14 +361,14 @@ function TaskSideTools({
         active={activeTool === "proposal"}
         icon={<ScrollText size={15} />}
         title="Proposal"
-        status={canApplyProposal ? "ready" : "none"}
+        status={proposal ? "ready" : "none"}
         onToggle={() => onSelectTool(activeTool === "proposal" ? "changes" : "proposal")}
       >
-        <p>Decision draft evolves in chat. Apply only when it is ready.</p>
+        {proposal ? <pre className="proposal-preview">{proposal}</pre> : <p>Decision draft evolves in chat. Apply only when it is ready.</p>}
         <dl className="compact-dl">
           <div>
             <dt>Status</dt>
-            <dd>{canApplyProposal ? "Reviewable" : "No proposal"}</dd>
+            <dd>{proposal ? "Reviewable" : "No proposal"}</dd>
           </div>
           <div>
             <dt>Execution</dt>
@@ -589,6 +601,7 @@ function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
   if (event === "context_collected") return "context";
   if (event === "stdout") return "assistant";
   if (event === "execution_output") return "stdout";
+  if (event === "proposal_updated") return "system";
   if (event === "stderr" || event === "task_failed") return "stderr";
   return "system";
 }

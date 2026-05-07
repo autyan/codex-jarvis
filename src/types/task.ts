@@ -37,6 +37,7 @@ export type TaskEvent = {
     | "execution_output"
     | "stderr"
     | "sudo_request"
+    | "proposal_updated"
     | "file_changed"
     | "diff_ready"
     | "rolled_back"
@@ -112,6 +113,13 @@ export type ApplyReviewResult = {
   taskId: string;
   accepted: string[];
   executionStarted: boolean;
+};
+
+export type ProposalState = {
+  taskId: string;
+  content: string;
+  updatedAt: number;
+  source: string;
 };
 
 export type SudoRequest = {

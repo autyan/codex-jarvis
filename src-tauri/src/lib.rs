@@ -222,6 +222,15 @@ struct ApplyReviewResult {
     execution_started: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProposalState {
+    task_id: String,
+    content: String,
+    updated_at: u128,
+    source: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionMetadata {
@@ -903,6 +912,11 @@ fn get_task_diff(task_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_task_proposal(task_id: String) -> Result<Option<ProposalState>, String> {
+    read_task_proposal(&task_id)
+}
+
+#[tauri::command]
 fn read_changed_file(task_id: String, path: String) -> Result<ChangedFileContent, String> {
     let changed_files = list_changed_files(task_id)?;
     let Some(file) = changed_files.iter().find(|file| file.path == path) else {
@@ -925,13 +939,11 @@ fn apply_task_review(
     running_tasks: State<'_, RunningTasks>,
     task_id: String,
 ) -> Result<ApplyReviewResult, String> {
-    let changed_files = list_changed_files(task_id.clone())?;
     let Some(task_dir) = task_data_dir(&task_id) else {
         return Err("Task data directory is unavailable".to_string());
     };
-    if changed_files.is_empty() {
-        return Err("No reviewed proposal files are available to apply".to_string());
-    }
+    let proposal_state = read_task_proposal(&task_id)?.ok_or_else(|| "No proposal is available to apply".to_string())?;
+    let changed_files = list_changed_files(task_id.clone()).unwrap_or_default();
     let task_workspace = session_workspace_dir(&task_id).ok_or_else(|| "Could not resolve task workspace".to_string())?;
     let metadata = read_session_metadata(&task_workspace)?;
     let profile = profile_by_id(&metadata.profile_id)
@@ -950,11 +962,15 @@ fn apply_task_review(
         return Err("Task is already running".to_string());
     }
 
-    let proposal = read_reviewed_proposal(&changed_files);
+    let proposal = proposal_state.content;
 
     let result = ApplyReviewResult {
         task_id: task_id.clone(),
-        accepted: changed_files.iter().map(|file| file.path.clone()).collect(),
+        accepted: if changed_files.is_empty() {
+            vec!["current proposal".to_string()]
+        } else {
+            changed_files.iter().map(|file| file.path.clone()).collect()
+        },
         execution_started: true,
     };
     let log = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
@@ -968,7 +984,7 @@ fn apply_task_review(
             task_id: task_id.clone(),
             event: "task_started",
             text: Some(format!(
-                "Apply started with {} reviewed proposal files",
+                "Apply started with {} proposal inputs",
                 result.accepted.len()
             )),
             status: Some("running".to_string()),
@@ -1555,21 +1571,6 @@ fn read_session_metadata(task_workspace: &Path) -> Result<SessionMetadata, Strin
     serde_json::from_str(&content).map_err(|error| format!("Could not parse session metadata: {error}"))
 }
 
-fn read_reviewed_proposal(changed_files: &[ChangedFile]) -> String {
-    changed_files
-        .iter()
-        .map(|file| {
-            let content = if file.status == "deleted" {
-                "[deleted file]".to_string()
-            } else {
-                fs::read_to_string(&file.path).unwrap_or_else(|error| format!("[failed to read file: {error}]"))
-            };
-            format!("## {}\nStatus: {}\n\n{}\n", file.path, file.status, content)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn spawn_apply_execution(
     app: AppHandle,
     registry: RunningTasks,
@@ -1807,6 +1808,19 @@ Task profile:\n\
 - Intended readable paths:\n{read_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
+Proposal cache:\n\
+When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
+JARVIS_PROPOSAL_BEGIN\n\
+## Summary\n\
+...\n\
+## Domains\n\
+...\n\
+## Actions\n\
+...\n\
+## Sudo\n\
+...\n\
+JARVIS_PROPOSAL_END\n\
+Keep the block human-readable markdown.\n\n\
 Rules:\n\
 1. Do not modify files.\n\
 2. Do not run sudo.\n\
@@ -1861,6 +1875,19 @@ Task profile:\n\
 - Writable paths:\n{write_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
+Proposal cache:\n\
+When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
+JARVIS_PROPOSAL_BEGIN\n\
+## Summary\n\
+...\n\
+## Domains\n\
+...\n\
+## Actions\n\
+...\n\
+## Sudo\n\
+...\n\
+JARVIS_PROPOSAL_END\n\
+Keep the block human-readable markdown and ensure it reflects the latest decision.\n\n\
 Rules:\n\
 1. Modify only writable paths listed above.\n\
 2. Do not modify forbidden paths.\n\
@@ -2016,6 +2043,20 @@ where
                         );
                         continue;
                     }
+                    if let Some(proposal) = parse_proposal_line(&task_id, &line) {
+                        persist_task_proposal(&proposal);
+                        emit_task_event(
+                            &app,
+                            TaskEvent {
+                                task_id: task_id.clone(),
+                                event: "proposal_updated",
+                                text: Some(proposal.content),
+                                status: Some("awaiting_review".to_string()),
+                                exit_code: None,
+                            },
+                        );
+                        continue;
+                    }
                 }
                 emit_task_event(
                     &app,
@@ -2047,6 +2088,57 @@ fn parse_sudo_request_line(task_id: &str, line: &str) -> Option<PendingSudoReque
         commands: request.commands,
         created_at: now_millis(),
     })
+}
+
+fn parse_proposal_line(task_id: &str, line: &str) -> Option<ProposalState> {
+    let trimmed = line.trim();
+    let content = if let Some(payload) = trimmed.strip_prefix("JARVIS_PROPOSAL:") {
+        payload.trim().to_string()
+    } else if trimmed.contains("JARVIS_PROPOSAL_BEGIN") && trimmed.contains("JARVIS_PROPOSAL_END") {
+        trimmed
+            .split_once("JARVIS_PROPOSAL_BEGIN")?
+            .1
+            .split_once("JARVIS_PROPOSAL_END")?
+            .0
+            .trim()
+            .to_string()
+    } else {
+        return None;
+    };
+    if content.is_empty() {
+        return None;
+    }
+    Some(ProposalState {
+        task_id: task_id.to_string(),
+        content,
+        updated_at: now_millis(),
+        source: "codex".to_string(),
+    })
+}
+
+fn persist_task_proposal(proposal: &ProposalState) {
+    let Some(task_dir) = task_data_dir(&proposal.task_id) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&task_dir);
+    if let Ok(content) = serde_json::to_string_pretty(proposal) {
+        let _ = fs::write(task_dir.join("proposal.json"), content);
+    }
+    let _ = fs::write(task_dir.join("proposal.md"), &proposal.content);
+}
+
+fn read_task_proposal(task_id: &str) -> Result<Option<ProposalState>, String> {
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return Ok(None);
+    };
+    let path = task_dir.join("proposal.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&content)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 fn persist_pending_sudo_request(request: &PendingSudoRequest) {
@@ -2217,6 +2309,10 @@ fn persist_task_event(event: &TaskEvent) {
             "stdout" | "execution_output" => {
                 append_file(task_dir.join("stdout.log"), text);
                 append_file(task_dir.join("stdout.log"), "\n");
+            }
+            "proposal_updated" => {
+                append_file(task_dir.join("proposal-events.log"), text);
+                append_file(task_dir.join("proposal-events.log"), "\n");
             }
             "stderr" | "task_failed" => {
                 append_file(task_dir.join("stderr.log"), text);
@@ -2575,6 +2671,7 @@ fn event_source(event: &str) -> &'static str {
         "context_collected" => "context",
         "stdout" => "assistant",
         "execution_output" => "stdout",
+        "proposal_updated" => "system",
         "stderr" | "task_failed" => "stderr",
         _ => "system",
     }
@@ -2613,6 +2710,7 @@ pub fn run() {
             prune_sessions,
             list_changed_files,
             get_task_diff,
+            get_task_proposal,
             read_changed_file,
             apply_task_review,
             decide_sudo_request,
