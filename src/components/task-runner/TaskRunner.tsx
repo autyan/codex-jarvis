@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Ban, CheckCircle2, FileDiff, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { AppSettings } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
@@ -22,6 +22,7 @@ type TaskRunnerProps = {
 
 const defaultPrompt = "";
 const eventWindowSize = 120;
+type ToolTab = "proposal" | "changes" | "context" | "token" | "execution";
 
 export function TaskRunner({
   profile,
@@ -41,6 +42,7 @@ export function TaskRunner({
   const [directExecute, setDirectExecute] = useState(false);
   const [eventOffset, setEventOffset] = useState(0);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [activeTool, setActiveTool] = useState<ToolTab>("proposal");
   const activeTaskIdRef = useRef<string | undefined>(undefined);
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
@@ -54,6 +56,9 @@ export function TaskRunner({
   const canApplyProposal = (changedFiles?.length ?? 0) > 0 && !isActive;
   const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
   const hasOlderEvents = eventOffset > 0;
+  const toolLogs = useMemo(() => logs.filter((log) => log.source !== "user" && log.source !== "assistant"), [logs]);
+  const chatLogs = useMemo(() => logs.filter((log) => log.source === "user" || log.source === "assistant"), [logs]);
+  const tokenEstimate = useMemo(() => estimateTokenUsage(chatLogs, attachedContext), [attachedContext, chatLogs]);
 
   const loadLatestEvents = useCallback(async (nextTaskId: string) => {
     const firstPage = await listTaskEvents(nextTaskId, 0, 1);
@@ -218,79 +223,272 @@ export function TaskRunner({
   }
 
   return (
-    <section className="workspace-panel task-runner">
-      <div className="section-heading">
-        <div>
-          <h2>{displayTitle}</h2>
-          <span>{taskId ?? `${profile.name} profile`}</span>
+    <section className="workspace-panel task-runner chat-workspace">
+      <div className="chat-main">
+        <div className="section-heading">
+          <div>
+            <h2>{displayTitle}</h2>
+            <span>{taskId ?? `${profile.name} profile`}</span>
+          </div>
+          <div className={`task-status status-${status}`}>{statusLabel}</div>
         </div>
-        <div className={`task-status status-${status}`}>{statusLabel}</div>
+
+        <VirtualLog
+          logs={logs}
+          hasOlder={hasOlderEvents}
+          isLoadingOlder={isLoadingOlder}
+          onLoadOlder={loadOlderEvents}
+        />
+
+        <div className="composer-panel">
+          {attachedContext ? (
+            <div className="attached-context">
+              <strong>Attached terminal output</strong>
+              <span>{attachedContext.slice(0, 180)}</span>
+              <button onClick={onClearAttachedContext}>Clear</button>
+            </div>
+          ) : null}
+
+          <label className="prompt-box">
+            <span>Message</span>
+            <textarea
+              placeholder="Ask Codex to inspect, explain, change, or continue this workspace..."
+              value={prompt}
+              onChange={(event) => {
+                const nextPrompt = event.target.value;
+                setPrompt(nextPrompt);
+                writePromptDraft(taskId, nextPrompt);
+              }}
+            />
+          </label>
+
+          <div className="composer-actions">
+            <label className={directExecute ? "direct-execute-toggle active" : "direct-execute-toggle"}>
+              <input
+                type="checkbox"
+                checked={directExecute}
+                onChange={(event) => setDirectExecute(event.target.checked)}
+                disabled={isActive}
+              />
+              <ShieldAlert size={16} />
+              <span>Direct execute</span>
+            </label>
+            <div className="button-row">
+              <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
+                <Ban size={16} />
+                Cancel
+              </button>
+              <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
+                <Send size={16} />
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <label className="prompt-box">
-        <span>Message</span>
-        <textarea
-          placeholder="Ask Codex to inspect, explain, change, or continue this workspace..."
-          value={prompt}
-          onChange={(event) => {
-            const nextPrompt = event.target.value;
-            setPrompt(nextPrompt);
-            writePromptDraft(taskId, nextPrompt);
-          }}
-        />
-      </label>
+      <TaskSideTools
+        activeTool={activeTool}
+        onSelectTool={setActiveTool}
+        canApplyProposal={canApplyProposal}
+        changedFiles={changedFiles ?? []}
+        directExecute={directExecute}
+        isActive={isActive}
+        onOpenReview={onOpenReview}
+        profile={profile}
+        settings={settings}
+        statusLabel={statusLabel}
+        taskId={taskId}
+        toolLogs={toolLogs}
+        tokenEstimate={tokenEstimate}
+        attachedContext={attachedContext}
+      />
+    </section>
+  );
+}
 
-      {attachedContext ? (
-        <div className="attached-context">
-          <strong>Attached terminal output</strong>
-          <span>{attachedContext.slice(0, 180)}</span>
-          <button onClick={onClearAttachedContext}>Clear</button>
-        </div>
+function TaskSideTools({
+  activeTool,
+  onSelectTool,
+  canApplyProposal,
+  changedFiles,
+  directExecute,
+  isActive,
+  onOpenReview,
+  profile,
+  settings,
+  statusLabel,
+  taskId,
+  toolLogs,
+  tokenEstimate,
+  attachedContext,
+}: {
+  activeTool: ToolTab;
+  onSelectTool: (tool: ToolTab) => void;
+  canApplyProposal: boolean;
+  changedFiles: Awaited<ReturnType<typeof listChangedFiles>>;
+  directExecute: boolean;
+  isActive: boolean;
+  onOpenReview: () => void;
+  profile: TaskProfile;
+  settings?: AppSettings;
+  statusLabel: string;
+  taskId?: string;
+  toolLogs: TaskLogLine[];
+  tokenEstimate: { label: string; approximateTokens: number; chatMessages: number };
+  attachedContext?: string;
+}) {
+  const tabs: Array<{ id: ToolTab; label: string }> = [
+    { id: "proposal", label: "Proposal" },
+    { id: "changes", label: "Changes" },
+    { id: "context", label: "Context" },
+    { id: "token", label: "Token" },
+    { id: "execution", label: "Execution" },
+  ];
+
+  return (
+    <aside className="task-side-tools">
+      <nav className="tool-tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeTool === tab.id ? "active" : ""}
+            onClick={() => onSelectTool(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {activeTool === "proposal" ? (
+        <ToolPanel icon={<ScrollText size={15} />} title="Current Proposal">
+          <p>
+            Proposal evolves as you chat. Keep talking until the decision is clear, then review and apply it explicitly.
+          </p>
+          <dl className="compact-dl">
+            <div>
+              <dt>Status</dt>
+              <dd>{canApplyProposal ? "Proposal ready" : "No reviewable proposal"}</dd>
+            </div>
+            <div>
+              <dt>Execution</dt>
+              <dd>{directExecute ? "Direct execute enabled" : "Apply required"}</dd>
+            </div>
+          </dl>
+          <button className="tool-primary-action" onClick={onOpenReview} disabled={!canApplyProposal || isActive}>
+            <CheckCircle2 size={14} />
+            Review / Apply
+          </button>
+        </ToolPanel>
       ) : null}
 
-      <label className={directExecute ? "direct-execute-toggle active" : "direct-execute-toggle"}>
-        <input
-          type="checkbox"
-          checked={directExecute}
-          onChange={(event) => setDirectExecute(event.target.checked)}
-          disabled={isActive}
-        />
-        <ShieldAlert size={16} />
-        <span>Direct execute</span>
-      </label>
+      {activeTool === "changes" ? (
+        <ToolPanel icon={<FileDiff size={15} />} title="Snapshot & Diff">
+          <p>Snapshots and diffs are created during apply/review work and stay out of the chat transcript.</p>
+          <dl className="compact-dl">
+            <div>
+              <dt>Changed files</dt>
+              <dd>{changedFiles.length}</dd>
+            </div>
+            <div>
+              <dt>Rollback</dt>
+              <dd>{changedFiles.length ? "Available in Review" : "No changes yet"}</dd>
+            </div>
+          </dl>
+          <div className="tool-list">
+            {changedFiles.slice(0, 8).map((file) => (
+              <span key={file.path}>{file.status}: {file.path}</span>
+            ))}
+            {!changedFiles.length ? <span>No changed files detected.</span> : null}
+          </div>
+        </ToolPanel>
+      ) : null}
 
-      {directExecute ? (
-        <div className="risk-warning">
-          Direct execute can run non-privileged commands immediately in this session. Keep it off unless you are ready
-          for Codex to act without first shaping a proposal.
-        </div>
-      ) : (
-        <div className="proposal-hint">
-          Proposal keeps evolving as you continue the conversation. Use Apply only when the current proposal is ready.
-        </div>
-      )}
+      {activeTool === "context" ? (
+        <ToolPanel icon={<Info size={15} />} title="Context Window">
+          <dl className="compact-dl">
+            <div>
+              <dt>Session</dt>
+              <dd>{taskId ?? "New conversation"}</dd>
+            </div>
+            <div>
+              <dt>Profile</dt>
+              <dd>{profile.name}</dd>
+            </div>
+            <div>
+              <dt>Chat window</dt>
+              <dd>Recent 24 chat messages</dd>
+            </div>
+            <div>
+              <dt>Terminal attach</dt>
+              <dd>{attachedContext ? "Attached selection" : "None"}</dd>
+            </div>
+          </dl>
+        </ToolPanel>
+      ) : null}
 
-      <div className="button-row">
-        <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
-          <Ban size={16} />
-          Cancel
-        </button>
-        <button className="secondary-action apply-action" onClick={onOpenReview} disabled={!canApplyProposal}>
-          <CheckCircle2 size={16} />
-          Review / Apply proposal
-        </button>
-        <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
-          <Send size={16} />
-          Send
-        </button>
-      </div>
+      {activeTool === "token" ? (
+        <ToolPanel icon={<Info size={15} />} title="Token Budget">
+          <dl className="compact-dl">
+            <div>
+              <dt>Size</dt>
+              <dd>{tokenEstimate.label}</dd>
+            </div>
+            <div>
+              <dt>Approx tokens</dt>
+              <dd>{tokenEstimate.approximateTokens}</dd>
+            </div>
+            <div>
+              <dt>Chat messages</dt>
+              <dd>{tokenEstimate.chatMessages}</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{settings?.codexModel ?? "CLI default"}</dd>
+            </div>
+            <div>
+              <dt>Effort</dt>
+              <dd>{settings?.codexReasoningEffort ?? "medium"}</dd>
+            </div>
+          </dl>
+        </ToolPanel>
+      ) : null}
 
-      <VirtualLog
-        logs={logs}
-        hasOlder={hasOlderEvents}
-        isLoadingOlder={isLoadingOlder}
-        onLoadOlder={loadOlderEvents}
-      />
+      {activeTool === "execution" ? (
+        <ToolPanel icon={<TerminalSquare size={15} />} title="Execution">
+          <dl className="compact-dl">
+            <div>
+              <dt>Status</dt>
+              <dd>{statusLabel}</dd>
+            </div>
+            <div>
+              <dt>Tool events</dt>
+              <dd>{toolLogs.length}</dd>
+            </div>
+          </dl>
+          <div className="execution-log side-execution-log">
+            {toolLogs.slice(-80).map((line) => (
+              <div key={line.id} className={`log-line source-${line.source}`}>
+                <span>{line.source}</span>
+                <pre>{line.text}</pre>
+              </div>
+            ))}
+            {!toolLogs.length ? <p>No tool events yet.</p> : null}
+          </div>
+        </ToolPanel>
+      ) : null}
+    </aside>
+  );
+}
+
+function ToolPanel({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <section className="tool-panel">
+      <h3>
+        {icon}
+        {title}
+      </h3>
+      {children}
     </section>
   );
 }
@@ -326,6 +524,18 @@ function writePromptDraft(taskId: string | undefined, value: string) {
 
 function clearPromptDraft(taskId?: string) {
   localStorage.removeItem(promptDraftKey(taskId));
+}
+
+function estimateTokenUsage(chatLogs: TaskLogLine[], attachedContext?: string) {
+  const textSize =
+    chatLogs.slice(-24).reduce((total, log) => total + log.text.length, 0) + (attachedContext?.length ?? 0);
+  const approximateTokens = Math.ceil(textSize / 4);
+  const label = approximateTokens < 2500 ? "small" : approximateTokens < 8000 ? "medium" : "large";
+  return {
+    approximateTokens,
+    chatMessages: chatLogs.length,
+    label,
+  };
 }
 
 function buildProposalPrompt(message: string, canWriteDrafts: boolean, directExecute: boolean) {
