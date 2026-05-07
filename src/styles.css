@@ -995,6 +995,29 @@ textarea {
   gap: 2px;
 }
 
+.initial-history-loading {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+}
+
+.loading-card {
+  border: 1px solid #343434;
+  border-radius: 4px;
+  display: grid;
+  gap: 6px;
+  padding: 18px 24px;
+  text-align: center;
+}
+
+.loading-card span {
+  color: #d4d4d4;
+}
+
+.loading-card small {
+  color: #858585;
+}
+
 .chat-message {
   background: #1f1f1f;
   border: 1px solid #343434;

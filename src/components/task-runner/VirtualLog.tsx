@@ -4,13 +4,14 @@ import type { TaskLogLine } from "../../types/task";
 type VirtualLogProps = {
   logs: TaskLogLine[];
   hasOlder?: boolean;
+  isInitialLoading?: boolean;
   isLoadingOlder?: boolean;
   onLoadOlder?: () => void;
 };
 
 const conversationSources = new Set<TaskLogLine["source"]>(["user", "assistant"]);
 
-export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
+export function VirtualLog({ logs, hasOlder, isInitialLoading, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const pendingScrollHeightRef = useRef<number | undefined>(undefined);
   const [messageMenu, setMessageMenu] = useState<{ x: number; y: number; text: string; label: string }>();
@@ -68,6 +69,17 @@ export function VirtualLog({ logs, hasOlder, isLoadingOlder, onLoadOlder }: Virt
     if (!messageMenu?.text) return;
     await writeClipboardText(messageMenu.text);
     setMessageMenu(undefined);
+  }
+
+  if (isInitialLoading) {
+    return (
+      <div className="output-box task-output chat-output initial-history-loading" aria-live="polite">
+        <div className="loading-card">
+          <span>Loading conversation...</span>
+          <small>Preparing the recent message window</small>
+        </div>
+      </div>
+    );
   }
 
   if (!logs.length) {

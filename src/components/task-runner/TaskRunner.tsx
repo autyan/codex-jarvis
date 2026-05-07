@@ -50,6 +50,7 @@ export function TaskRunner({
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
   const [directExecute, setDirectExecute] = useState(false);
   const [eventOffset, setEventOffset] = useState(0);
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolTab>("proposal");
   const [contextSnapshots, setContextSnapshots] = useState<ContextSnapshot[]>([]);
@@ -82,40 +83,46 @@ export function TaskRunner({
   const executionItems = useMemo(() => buildExecutionTimeline(toolLogs), [toolLogs]);
 
   const loadLatestEvents = useCallback(async (nextTaskId: string, options?: { background?: boolean }) => {
-    const firstPage = await listTaskEvents(nextTaskId, 0, 1);
-    let offset = Math.max(0, firstPage.total - initialEventPageSize);
-    let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
-    let events = page.events;
+    try {
+      const firstPage = await listTaskEvents(nextTaskId, 0, 1);
+      let offset = Math.max(0, firstPage.total - initialEventPageSize);
+      let page = await listTaskEvents(nextTaskId, offset, initialEventPageSize);
+      let events = page.events;
 
-    while (
-      offset > 0 &&
-      events.length < maxInitialEventWindow &&
-      countConversationCharacters(events) < initialConversationCharTarget
-    ) {
-      const nextOffset = Math.max(0, offset - initialEventPageSize);
-      const nextPage = await listTaskEvents(nextTaskId, nextOffset, offset - nextOffset);
-      events = [...nextPage.events, ...events];
-      offset = nextPage.offset;
+      while (
+        offset > 0 &&
+        events.length < maxInitialEventWindow &&
+        countConversationCharacters(events) < initialConversationCharTarget
+      ) {
+        const nextOffset = Math.max(0, offset - initialEventPageSize);
+        const nextPage = await listTaskEvents(nextTaskId, nextOffset, offset - nextOffset);
+        events = [...nextPage.events, ...events];
+        offset = nextPage.offset;
+      }
+
+      if (activeTaskIdRef.current !== nextTaskId) return;
+
+      const nextLogs = eventsToLogs(events);
+      const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
+      const cached = sessionCacheRef.current.get(nextTaskId);
+      const mergedLogs = options?.background && cached ? mergeLogWindows(cached.logs, nextLogs) : nextLogs;
+      sessionCacheRef.current.set(nextTaskId, {
+        contextSnapshots: cached?.contextSnapshots ?? [],
+        eventOffset: Math.min(offset, cached?.eventOffset ?? offset),
+        logs: mergedLogs,
+        status: nextStatus,
+      });
+
+      activeTaskIdRef.current = nextTaskId;
+      setTaskId(nextTaskId);
+      setEventOffset(Math.min(offset, cached?.eventOffset ?? offset));
+      setStatus(nextStatus);
+      setLogs(mergedLogs);
+    } finally {
+      if (!options?.background && activeTaskIdRef.current === nextTaskId) {
+        setIsInitialLoading(false);
+      }
     }
-
-    if (activeTaskIdRef.current !== nextTaskId) return;
-
-    const nextLogs = eventsToLogs(events);
-    const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
-    const cached = sessionCacheRef.current.get(nextTaskId);
-    const mergedLogs = options?.background && cached ? mergeLogWindows(cached.logs, nextLogs) : nextLogs;
-    sessionCacheRef.current.set(nextTaskId, {
-      contextSnapshots: cached?.contextSnapshots ?? [],
-      eventOffset: Math.min(offset, cached?.eventOffset ?? offset),
-      logs: mergedLogs,
-      status: nextStatus,
-    });
-
-    activeTaskIdRef.current = nextTaskId;
-    setTaskId(nextTaskId);
-    setEventOffset(Math.min(offset, cached?.eventOffset ?? offset));
-    setStatus(nextStatus);
-    setLogs(mergedLogs);
   }, []);
 
   const loadOlderEvents = useCallback(async () => {
@@ -184,6 +191,7 @@ export function TaskRunner({
       setStatus("idle");
       setLogs([]);
       setEventOffset(0);
+      setIsInitialLoading(false);
       setContextSnapshots([]);
       setPrompt(readPromptDraft(undefined));
       return;
@@ -197,6 +205,7 @@ export function TaskRunner({
       setLogs(cached.logs);
       setEventOffset(cached.eventOffset);
       setContextSnapshots(cached.contextSnapshots);
+      setIsInitialLoading(false);
       void loadLatestEvents(selectedTaskId, { background: true });
       return;
     }
@@ -204,6 +213,7 @@ export function TaskRunner({
     setLogs([]);
     setEventOffset(0);
     setContextSnapshots([]);
+    setIsInitialLoading(true);
     void loadLatestEvents(selectedTaskId);
   }, [loadLatestEvents, selectedTaskId]);
 
@@ -378,6 +388,7 @@ export function TaskRunner({
         <VirtualLog
           logs={logs}
           hasOlder={hasOlderEvents}
+          isInitialLoading={isInitialLoading}
           isLoadingOlder={isLoadingOlder}
           onLoadOlder={loadOlderEvents}
         />
