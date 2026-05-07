@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
+import { AlertCircle, BrainCircuit, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
@@ -270,6 +270,7 @@ export function App() {
           <UserRound size={16} />
           Profile: {activeProfile.name}
         </button>
+        <ModelQuickControls settings={appSettingsQuery.data} onChange={handleSetCodexModel} />
         <button onClick={() => hasReviewableProposal && setReviewOpen(true)} disabled={!hasReviewableProposal}>
           <FileDiff size={16} />
           Review
@@ -329,6 +330,44 @@ export function App() {
           />
         </Modal>
       ) : null}
+    </div>
+  );
+}
+
+function ModelQuickControls({
+  settings,
+  onChange,
+}: {
+  settings?: AppSettings;
+  onChange: (codexModel: string | undefined, codexReasoningEffort: CodexReasoningEffort) => void;
+}) {
+  const codexModel = settings?.codexModel ?? "__cli_default__";
+  const codexReasoningEffort = settings?.codexReasoningEffort ?? "medium";
+
+  return (
+    <div className="activity-select-group" title="Codex model and reasoning effort">
+      <BrainCircuit size={16} />
+      <select
+        aria-label="Codex model"
+        value={codexModel}
+        onChange={(event) =>
+          onChange(event.target.value === "__cli_default__" ? undefined : event.target.value, codexReasoningEffort)
+        }
+      >
+        <option value="__cli_default__">CLI default</option>
+        <option value="gpt-5.5">gpt-5.5</option>
+        <option value="gpt-5.4">gpt-5.4</option>
+        <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+      </select>
+      <select
+        aria-label="Codex reasoning effort"
+        value={codexReasoningEffort}
+        onChange={(event) => onChange(settings?.codexModel, event.target.value as CodexReasoningEffort)}
+      >
+        <option value="low">low</option>
+        <option value="medium">medium</option>
+        <option value="high">high</option>
+      </select>
     </div>
   );
 }

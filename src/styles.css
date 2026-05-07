@@ -1259,10 +1259,55 @@ textarea {
   white-space: nowrap;
 }
 
-.bottom-activity svg {
+.bottom-activity svg,
+.activity-select-group svg {
   flex: 0 0 auto;
   height: 13px;
   width: 13px;
+}
+
+.activity-select-group {
+  align-items: center;
+  color: #ffffff;
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  height: 20px;
+  min-width: 0;
+}
+
+.activity-select-group select {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: #ffffff;
+  color-scheme: dark;
+  font-size: 12px;
+  height: 20px;
+  line-height: 1;
+  max-width: 116px;
+  min-width: 62px;
+  padding: 0 15px 0 5px;
+}
+
+.activity-select-group select:first-of-type {
+  max-width: 122px;
+}
+
+.activity-select-group select:focus {
+  background: rgb(0 0 0 / 0.2);
+  border-color: rgb(255 255 255 / 0.45);
+  outline: none;
+}
+
+.activity-select-group select:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.activity-select-group option {
+  background: #1e1e1e;
+  color: #d4d4d4;
 }
 
 .bottom-activity button.active,
