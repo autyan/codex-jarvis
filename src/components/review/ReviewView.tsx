@@ -6,10 +6,11 @@ import type { ApplyReviewResult, RollbackResult } from "../../types/task";
 
 type ReviewViewProps = {
   taskId?: string;
+  sessionName?: string;
   onClose: () => void;
 };
 
-export function ReviewView({ taskId, onClose }: ReviewViewProps) {
+export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
   const [applyResult, setApplyResult] = useState<ApplyReviewResult>();
   const [applyError, setApplyError] = useState<string>();
   const [isApplying, setIsApplying] = useState(false);
@@ -113,9 +114,9 @@ export function ReviewView({ taskId, onClose }: ReviewViewProps) {
   return (
     <section className="workspace-panel review-view">
       <div className="section-heading">
-        <div>
-          <h2>Review Changes</h2>
-          <span>{taskId}</span>
+        <div className="review-title-block">
+          <h2>{sessionName ?? "Review Changes"}</h2>
+          <span>Task ID: {taskId}</span>
         </div>
         <div className="review-toolbar">
           <button className="review-action" onClick={refresh} disabled={changedFilesQuery.isFetching || diffQuery.isFetching}>

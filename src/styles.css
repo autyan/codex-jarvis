@@ -967,7 +967,20 @@ textarea {
   align-items: center;
 }
 
+.review-title-block {
+  min-width: 0;
+}
+
+.review-title-block h2,
+.review-title-block span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .review-toolbar {
+  flex-shrink: 0;
   display: flex;
   gap: 6px;
 }
