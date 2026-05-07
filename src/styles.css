@@ -4,7 +4,7 @@
   color: #d4d4d4;
   background: #1e1e1e;
   font-family:
-    "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+    "CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   font-size: 13px;
 }
 
@@ -527,7 +527,7 @@ textarea {
 }
 
 .terminal-panel pre {
-  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  font-family: "CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   margin: 0;
   white-space: pre-wrap;
 }
@@ -571,6 +571,15 @@ textarea {
 
 .terminal-dock.open {
   padding: 0;
+}
+
+.terminal-session {
+  height: 100%;
+  min-height: 0;
+}
+
+.terminal-session.hidden {
+  display: none;
 }
 
 .terminal-dock .workspace-panel,
@@ -653,7 +662,7 @@ textarea {
 }
 
 .log-line pre {
-  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  font-family: "CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   margin: 0;
   overflow-x: auto;
   white-space: pre-wrap;
@@ -949,7 +958,7 @@ textarea {
   background: #181818;
   border-radius: 3px;
   color: #d4d4d4;
-  font-family: "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  font-family: "CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
   height: calc(100vh - 120px);
   margin: 0;
   overflow: auto;

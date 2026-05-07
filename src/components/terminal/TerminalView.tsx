@@ -8,6 +8,7 @@ import type { TaskProfile } from "../../types/profile";
 import type { TerminalEvent } from "../../types/terminal";
 
 type TerminalViewProps = {
+  active: boolean;
   profile: TaskProfile;
   onAttachOutput: (output: string) => void;
 };
@@ -15,7 +16,7 @@ type TerminalViewProps = {
 const defaultCols = 100;
 const defaultRows = 28;
 
-export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: TerminalViewProps) {
+export function TerminalView({ active, profile, onAttachOutput: _onAttachOutput }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | undefined>(undefined);
   const terminalIdRef = useRef<string | undefined>(undefined);
@@ -57,6 +58,12 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
     };
   }, []);
 
+  useEffect(() => {
+    if (active) {
+      requestAnimationFrame(() => terminalRef.current?.focus());
+    }
+  }, [active]);
+
   async function openTerminal() {
     if (terminalRef.current || openingRef.current) return;
     openingRef.current = true;
@@ -74,7 +81,7 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
         cursor: "#d8b24a",
         selectionBackground: "#34524b",
       },
-      fontFamily: '"Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", monospace',
+      fontFamily: '"CaskaydiaMono Nerd Font Mono", "CaskaydiaMono NFM", "Cascadia Code Mono", "Cascadia Mono", "Cascadia Code", "JetBrains Mono", monospace',
       fontSize: 13,
     });
 

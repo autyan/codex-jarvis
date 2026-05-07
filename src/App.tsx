@@ -22,6 +22,7 @@ export function App() {
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(false);
   const [terminalWidth, setTerminalWidth] = useState(360);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
@@ -130,7 +131,10 @@ export function App() {
             profile={activeProfile}
             selectedTaskId={activeTaskId}
             onTaskStarted={(taskId) => setActiveTaskId(taskId)}
-            onOpenTerminal={() => setTerminalOpen(true)}
+            onOpenTerminal={() => {
+              setTerminalMounted(true);
+              setTerminalOpen(true);
+            }}
             attachedContext={attachedTerminalOutput}
             onClearAttachedContext={() => setAttachedTerminalOutput(undefined)}
           />
@@ -145,18 +149,26 @@ export function App() {
       </main>
 
       <aside className={terminalOpen ? "terminal-dock open" : "terminal-dock"}>
-        {terminalOpen ? (
-          <>
+        {terminalMounted ? (
+          <div className={terminalOpen ? "terminal-session active" : "terminal-session hidden"}>
             <div className="terminal-resizer" onMouseDown={startTerminalResize} />
             <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
-              <TerminalView profile={activeProfile} onAttachOutput={setAttachedTerminalOutput} />
+              <TerminalView active={terminalOpen} profile={activeProfile} onAttachOutput={setAttachedTerminalOutput} />
             </Suspense>
-          </>
-        ) : (
-          <button className="terminal-rail" onClick={() => setTerminalOpen(true)} aria-label="Open terminal">
+          </div>
+        ) : null}
+        {!terminalOpen ? (
+          <button
+            className="terminal-rail"
+            onClick={() => {
+              setTerminalMounted(true);
+              setTerminalOpen(true);
+            }}
+            aria-label="Open terminal"
+          >
             <Terminal size={18} />
           </button>
-        )}
+        ) : null}
       </aside>
 
       <footer className="bottom-activity">
@@ -168,7 +180,13 @@ export function App() {
           <FileDiff size={16} />
           Review
         </button>
-        <button className={terminalOpen ? "active" : ""} onClick={() => setTerminalOpen((open) => !open)}>
+        <button
+          className={terminalOpen ? "active" : ""}
+          onClick={() => {
+            setTerminalMounted(true);
+            setTerminalOpen((open) => !open);
+          }}
+        >
           <Terminal size={16} />
           Terminal
         </button>
