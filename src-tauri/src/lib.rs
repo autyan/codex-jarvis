@@ -1042,7 +1042,7 @@ fn decide_sudo_request(
             &app,
             TaskEvent {
                 task_id: task_id.clone(),
-                event: "stdout",
+                event: "execution_output",
                 text: Some(format!("$ sudo {command}")),
                 status: Some("running".to_string()),
                 exit_code: None,
@@ -1054,10 +1054,10 @@ fn decide_sudo_request(
         if !stdout.is_empty() {
             emit_task_event(
                 &app,
-                TaskEvent {
-                    task_id: task_id.clone(),
-                    event: "stdout",
-                    text: Some(stdout),
+                    TaskEvent {
+                        task_id: task_id.clone(),
+                        event: "execution_output",
+                        text: Some(stdout),
                     status: Some("running".to_string()),
                     exit_code: None,
                 },
@@ -2214,7 +2214,7 @@ fn persist_task_event(event: &TaskEvent) {
                 append_file(task_dir.join("context.md"), text);
                 append_file(task_dir.join("context.md"), "\n");
             }
-            "stdout" => {
+            "stdout" | "execution_output" => {
                 append_file(task_dir.join("stdout.log"), text);
                 append_file(task_dir.join("stdout.log"), "\n");
             }
@@ -2574,6 +2574,7 @@ fn event_source(event: &str) -> &'static str {
         "user_message" => "user",
         "context_collected" => "context",
         "stdout" => "assistant",
+        "execution_output" => "stdout",
         "stderr" | "task_failed" => "stderr",
         _ => "system",
     }

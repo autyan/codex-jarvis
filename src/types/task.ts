@@ -34,6 +34,7 @@ export type TaskEvent = {
     | "context_collected"
     | "snapshot_created"
     | "stdout"
+    | "execution_output"
     | "stderr"
     | "sudo_request"
     | "file_changed"

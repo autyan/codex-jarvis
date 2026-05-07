@@ -570,6 +570,7 @@ function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
   if (event === "user_message") return "user";
   if (event === "context_collected") return "context";
   if (event === "stdout") return "assistant";
+  if (event === "execution_output") return "stdout";
   if (event === "stderr" || event === "task_failed") return "stderr";
   return "system";
 }
