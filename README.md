@@ -22,7 +22,7 @@ The first usable version targets:
 - Fedora KDE / Fedora Workstation;
 - user-level system maintenance;
 - Codex CLI detection and setup;
-- built-in profiles: General, Shell, Scripts, systemd User Services;
+- built-in profiles: Workspace, Workstation Check, Config Drafts, Automation Drafts, User Services Drafts;
 - Diagnose, Patch, and Suggested Commands modes;
 - PTY-backed terminal panel;
 - task history with virtualized long-session output;

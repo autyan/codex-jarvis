@@ -19,7 +19,7 @@ const TerminalView = lazy(() =>
 
 export function App() {
   const queryClient = useQueryClient();
-  const [activeProfileId, setActiveProfileId] = useState("shell");
+  const [activeProfileId, setActiveProfileId] = useState("workspace");
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
   const [terminalOpen, setTerminalOpen] = useState(false);

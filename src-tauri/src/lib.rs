@@ -873,117 +873,116 @@ fn close_terminal(
 }
 
 fn profiles() -> Vec<TaskProfile> {
+    let default_denied_paths = vec![
+        "$HOME/.ssh",
+        "$HOME/.gnupg",
+        "$HOME/.local/share/keyrings",
+        "$HOME/.mozilla",
+        "$HOME/.password-store",
+        "/etc",
+        "/usr",
+        "/boot",
+        "/var",
+        "/root",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/run",
+    ];
+
     vec![
         TaskProfile {
-            id: "general",
-            name: "General",
-            description: "Read-only workstation diagnostics and general context collection.",
+            id: "workspace",
+            name: "Workspace",
+            description: "Default safe workspace for notes, drafts, generated files, and local task artifacts.",
+            default_mode: "patch",
+            cwd: "$JARVIS_WORKSPACE",
+            write_enabled: true,
+            snapshot_required: true,
+            read_paths: vec!["$JARVIS_WORKSPACE"],
+            write_paths: vec!["$JARVIS_WORKSPACE"],
+            deny_paths: default_denied_paths.clone(),
+            readonly_commands: vec![
+                "pwd",
+                "find . -maxdepth 3 -type f | sort | sed -n '1,120p'",
+                "git status --short",
+            ],
+        },
+        TaskProfile {
+            id: "workstation-check",
+            name: "Workstation Check",
+            description: "Read-only workstation diagnostics for OS, shell, PATH, disk, and session health.",
             default_mode: "diagnose",
             cwd: "$JARVIS_WORKSPACE",
             write_enabled: false,
             snapshot_required: false,
-            read_paths: vec!["$HOME", "$HOME/.config"],
+            read_paths: vec!["$JARVIS_WORKSPACE"],
             write_paths: vec![],
-            deny_paths: vec![
-                "$HOME/.ssh",
-                "$HOME/.gnupg",
-                "$HOME/.local/share/keyrings",
-                "$HOME/.mozilla",
-                "$HOME/.password-store",
-                "/etc",
-                "/usr",
-                "/boot",
-                "/var/lib",
-                "/var/log",
-                "/root",
-                "/proc",
-                "/sys",
-                "/dev",
-                "/run",
-            ],
+            deny_paths: default_denied_paths.clone(),
             readonly_commands: vec![
                 "cat /etc/os-release",
                 "uname -a",
                 "echo $SHELL",
+                "echo $PATH",
                 "echo $XDG_SESSION_TYPE",
+                "df -h $HOME",
             ],
         },
         TaskProfile {
-            id: "shell",
-            name: "Shell",
-            description: "Shell configuration, aliases, PATH, and environment variables.",
+            id: "config-drafts",
+            name: "Config Drafts",
+            description: "Inspect common user config, but write only proposed changes under workspace/config-drafts.",
             default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE",
+            cwd: "$JARVIS_WORKSPACE/config-drafts",
             write_enabled: true,
             snapshot_required: true,
             read_paths: vec![
                 "$HOME/.zshrc",
                 "$HOME/.profile",
+                "$HOME/.bashrc",
                 "$HOME/.config/environment.d",
-                "$HOME/.local/bin",
+                "$JARVIS_WORKSPACE/config-drafts",
             ],
-            write_paths: vec![
-                "$HOME/.zshrc",
-                "$HOME/.profile",
-                "$HOME/.config/environment.d",
-                "$HOME/.local/bin",
-            ],
-            deny_paths: vec![
-                "$HOME/.ssh",
-                "$HOME/.gnupg",
-                "$HOME/.local/share/keyrings",
-                "$HOME/.mozilla",
-                "$HOME/.password-store",
-                "/etc",
-                "/usr",
-                "/boot",
-                "/var",
-            ],
-            readonly_commands: vec!["echo $SHELL", "echo $PATH", "test -d $HOME/.config/environment.d && ls -la $HOME/.config/environment.d || true"],
-        },
-        TaskProfile {
-            id: "scripts",
-            name: "Scripts",
-            description: "Personal scripts and user-owned automation under local paths.",
-            default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE",
-            write_enabled: true,
-            snapshot_required: true,
-            read_paths: vec!["$HOME/.local/bin", "$HOME/Scripts"],
-            write_paths: vec!["$HOME/.local/bin", "$HOME/Scripts"],
-            deny_paths: vec![
-                "$HOME/.ssh",
-                "$HOME/.gnupg",
-                "$HOME/.local/share/keyrings",
-                "/etc",
-                "/usr",
-                "/boot",
-                "/var",
-            ],
-            readonly_commands: vec!["ls -la $HOME/.local/bin", "ls -la $HOME/Scripts"],
-        },
-        TaskProfile {
-            id: "systemd-user",
-            name: "systemd User",
-            description: "User-level systemd service diagnostics and unit files.",
-            default_mode: "patch",
-            cwd: "$JARVIS_WORKSPACE",
-            write_enabled: true,
-            snapshot_required: true,
-            read_paths: vec!["$HOME/.config/systemd/user"],
-            write_paths: vec!["$HOME/.config/systemd/user"],
-            deny_paths: vec![
-                "$HOME/.ssh",
-                "$HOME/.gnupg",
-                "$HOME/.local/share/keyrings",
-                "/etc",
-                "/usr",
-                "/boot",
-                "/var",
-            ],
+            write_paths: vec!["$JARVIS_WORKSPACE/config-drafts"],
+            deny_paths: default_denied_paths.clone(),
             readonly_commands: vec![
-                "systemctl --user list-units --type=service",
-                "systemctl --user --failed",
+                "echo $SHELL",
+                "echo $PATH",
+                "test -f $HOME/.zshrc && sed -n '1,220p' $HOME/.zshrc || true",
+                "test -f $HOME/.profile && sed -n '1,180p' $HOME/.profile || true",
+                "test -d $HOME/.config/environment.d && find $HOME/.config/environment.d -maxdepth 1 -type f -print | sort || true",
+            ],
+        },
+        TaskProfile {
+            id: "automation-drafts",
+            name: "Automation Drafts",
+            description: "Draft personal scripts and command helpers under workspace/scripts before installing them.",
+            default_mode: "patch",
+            cwd: "$JARVIS_WORKSPACE/scripts",
+            write_enabled: true,
+            snapshot_required: true,
+            read_paths: vec!["$HOME/.local/bin", "$JARVIS_WORKSPACE/scripts"],
+            write_paths: vec!["$JARVIS_WORKSPACE/scripts"],
+            deny_paths: default_denied_paths.clone(),
+            readonly_commands: vec![
+                "test -d $HOME/.local/bin && find $HOME/.local/bin -maxdepth 1 -type f -printf '%f\\n' | sort | sed -n '1,120p' || true",
+                "find . -maxdepth 2 -type f | sort | sed -n '1,120p'",
+            ],
+        },
+        TaskProfile {
+            id: "user-services-drafts",
+            name: "User Services Drafts",
+            description: "Diagnose user services and draft unit files under workspace/systemd-user.",
+            default_mode: "patch",
+            cwd: "$JARVIS_WORKSPACE/systemd-user",
+            write_enabled: true,
+            snapshot_required: true,
+            read_paths: vec!["$HOME/.config/systemd/user", "$JARVIS_WORKSPACE/systemd-user"],
+            write_paths: vec!["$JARVIS_WORKSPACE/systemd-user"],
+            deny_paths: default_denied_paths,
+            readonly_commands: vec![
+                "systemctl --user list-units --type=service --no-pager",
+                "systemctl --user --failed --no-pager",
                 "journalctl --user -p warning -n 100 --no-pager",
             ],
         },
@@ -1107,6 +1106,7 @@ Task profile:\n\
 - Working directory: {cwd}\n\
 - Mode: diagnose\n\
 - Writes allowed: no\n\
+- Intended readable paths:\n{read_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Rules:\n\
 1. Do not modify files.\n\
@@ -1118,6 +1118,12 @@ Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
         cwd = profile.cwd,
+        read_paths = profile
+            .read_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
         deny_paths = profile
             .deny_paths
             .iter()
@@ -1134,6 +1140,7 @@ Task profile:\n\
 - Name: {name}\n\
 - Working directory: {cwd}\n\
 - Mode: patch\n\
+- Intended readable paths:\n{read_paths}\n\
 - Writable paths:\n{write_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Rules:\n\
@@ -1148,6 +1155,12 @@ Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
         cwd = profile.cwd,
+        read_paths = profile
+            .read_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
         write_paths = profile
             .write_paths
             .iter()
@@ -1299,6 +1312,9 @@ fn ensure_app_workspace() -> Result<(), String> {
     fs::create_dir_all(data_dir.join("snapshots")).map_err(|error| error.to_string())?;
     fs::create_dir_all(data_dir.join("terminal")).map_err(|error| error.to_string())?;
     fs::create_dir_all(&workspace_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("config-drafts")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("scripts")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(workspace_dir.join("systemd-user")).map_err(|error| error.to_string())?;
 
     if !workspace_dir.join(".git").exists() {
         let _ = Command::new("git")
