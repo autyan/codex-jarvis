@@ -65,6 +65,7 @@ export function TaskRunner({
   const toolLogs = useMemo(() => logs.filter((log) => log.source !== "user" && log.source !== "assistant"), [logs]);
   const chatLogs = useMemo(() => logs.filter((log) => log.source === "user" || log.source === "assistant"), [logs]);
   const tokenEstimate = useMemo(() => estimateTokenUsage(chatLogs, attachedContext), [attachedContext, chatLogs]);
+  const executionItems = useMemo(() => buildExecutionTimeline(toolLogs), [toolLogs]);
 
   const loadLatestEvents = useCallback(async (nextTaskId: string) => {
     const firstPage = await listTaskEvents(nextTaskId, 0, 1);
@@ -309,6 +310,7 @@ export function TaskRunner({
         statusLabel={statusLabel}
         taskId={taskId}
         toolLogs={toolLogs}
+        executionItems={executionItems}
         tokenEstimate={tokenEstimate}
         attachedContext={attachedContext}
         proposal={proposalState?.content}
@@ -330,6 +332,7 @@ function TaskSideTools({
   statusLabel,
   taskId,
   toolLogs,
+  executionItems,
   tokenEstimate,
   attachedContext,
   proposal,
@@ -346,6 +349,7 @@ function TaskSideTools({
   statusLabel: string;
   taskId?: string;
   toolLogs: TaskLogLine[];
+  executionItems: ExecutionTimelineItem[];
   tokenEstimate: { label: string; approximateTokens: number; chatMessages: number };
   attachedContext?: string;
   proposal?: string;
@@ -425,14 +429,17 @@ function TaskSideTools({
             <dd>controlled flow</dd>
           </div>
         </dl>
-        <div className="execution-log side-execution-log">
-          {toolLogs.slice(-80).map((line) => (
-            <div key={line.id} className={`log-line source-${line.source}`}>
-              <span>{line.source}</span>
-              <pre>{line.text}</pre>
-            </div>
+        <div className="execution-timeline">
+          {executionItems.slice(-80).map((item) => (
+            <article key={item.id} className={`timeline-item tone-${item.tone}`}>
+              <div>
+                <strong>{item.title}</strong>
+                <span>{item.meta}</span>
+              </div>
+              {item.body ? <pre>{item.body}</pre> : null}
+            </article>
           ))}
-          {!toolLogs.length ? <p>No tool events.</p> : null}
+          {!executionItems.length ? <p>No tool events.</p> : null}
         </div>
       </InspectorSection>
 
@@ -492,6 +499,14 @@ function TaskSideTools({
     </aside>
   );
 }
+
+type ExecutionTimelineItem = {
+  id: string;
+  title: string;
+  meta: string;
+  body?: string;
+  tone: "normal" | "danger" | "success" | "muted";
+};
 
 function InspectorSection({
   active,
@@ -566,6 +581,69 @@ function estimateTokenUsage(chatLogs: TaskLogLine[], attachedContext?: string) {
     chatMessages: chatLogs.length,
     label,
   };
+}
+
+function buildExecutionTimeline(toolLogs: TaskLogLine[]): ExecutionTimelineItem[] {
+  return toolLogs.map((log) => {
+    const text = log.text.trim();
+    if (log.source === "stderr") {
+      return {
+        id: log.id,
+        title: "Error output",
+        meta: "stderr",
+        body: text,
+        tone: "danger",
+      };
+    }
+    if (log.source === "stdout" && text.startsWith("$ sudo ")) {
+      return {
+        id: log.id,
+        title: "Privileged command",
+        meta: "sudo",
+        body: text,
+        tone: "danger",
+      };
+    }
+    if (log.source === "stdout") {
+      return {
+        id: log.id,
+        title: "Command output",
+        meta: "stdout",
+        body: text,
+        tone: "normal",
+      };
+    }
+    if (log.source === "context") {
+      return {
+        id: log.id,
+        title: "Context collected",
+        meta: "Jarvis",
+        body: summarizeTimelineText(text),
+        tone: "muted",
+      };
+    }
+    return {
+      id: log.id,
+      title: timelineSystemTitle(text),
+      meta: log.source,
+      body: text,
+      tone: text.toLowerCase().includes("finished") || text.toLowerCase().includes("complete") ? "success" : "muted",
+    };
+  });
+}
+
+function timelineSystemTitle(text: string) {
+  if (text.toLowerCase().includes("sudo")) return "Sudo decision";
+  if (text.toLowerCase().includes("snapshot")) return "Snapshot";
+  if (text.toLowerCase().includes("proposal")) return "Proposal";
+  if (text.toLowerCase().includes("apply")) return "Apply";
+  return "Jarvis event";
+}
+
+function summarizeTimelineText(text: string) {
+  const limit = 420;
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n[truncated]`;
 }
 
 function buildProposalPrompt(message: string, canWriteDrafts: boolean, directExecute: boolean) {

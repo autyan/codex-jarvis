@@ -925,11 +925,6 @@ textarea {
   color: #6f6f6f;
 }
 
-.side-execution-log {
-  max-height: 280px;
-  min-height: 0;
-}
-
 .chat-output {
   position: relative;
 }
@@ -987,6 +982,56 @@ textarea {
   max-height: 260px;
   overflow: auto;
   padding-top: 8px;
+}
+
+.execution-timeline {
+  display: grid;
+  gap: 7px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.timeline-item {
+  border-left: 2px solid #454545;
+  display: grid;
+  gap: 5px;
+  padding-left: 8px;
+}
+
+.timeline-item div {
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.timeline-item strong {
+  color: #d4d4d4;
+  font-size: 11px;
+}
+
+.timeline-item span {
+  color: #969696;
+  font-size: 10px;
+}
+
+.timeline-item pre {
+  color: #bbbbbb;
+  font-family: inherit;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.timeline-item.tone-danger {
+  border-left-color: #ce9178;
+}
+
+.timeline-item.tone-success {
+  border-left-color: #4ec9b0;
+}
+
+.timeline-item.tone-muted {
+  border-left-color: #666666;
 }
 
 .log-line {
