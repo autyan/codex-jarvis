@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, CodexCliInfo, SetCodexCliPathRequest } from "../types/codex";
+import type { AppSettings, CodexCliInfo, SetCodexCliPathRequest, SetCodexModelSettingsRequest } from "../types/codex";
 
 export async function detectCodexCli(): Promise<CodexCliInfo> {
   try {
@@ -22,4 +22,8 @@ export function getAppSettings() {
 
 export function setSudoFlowEnabled(enabled: boolean) {
   return invoke<AppSettings>("set_sudo_flow_enabled", { enabled });
+}
+
+export function setCodexModelSettings(request: SetCodexModelSettingsRequest) {
+  return invoke<AppSettings>("set_codex_model_settings", { request });
 }

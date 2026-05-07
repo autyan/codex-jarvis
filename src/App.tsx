@@ -2,14 +2,14 @@ import { AlertCircle, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Ter
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import { detectCodexCli, getAppSettings, setSudoFlowEnabled } from "./api/codex";
+import { detectCodexCli, getAppSettings, setCodexModelSettings, setSudoFlowEnabled } from "./api/codex";
 import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { linuxDomainLabels, profiles } from "./data/profiles";
-import type { AppSettings, CodexSetupStatus } from "./types/codex";
+import type { AppSettings, CodexReasoningEffort, CodexSetupStatus } from "./types/codex";
 import type { TaskProfile } from "./types/profile";
 import type { SudoRequest, TaskSummary } from "./types/task";
 
@@ -106,7 +106,7 @@ export function App() {
 
   async function handleSetSudoFlow(enabled: boolean) {
     queryClient.setQueryData<AppSettings>(["app-settings"], (current) =>
-      current ? { ...current, sudoFlowEnabled: enabled } : { sudoFlowEnabled: enabled },
+      current ? { ...current, sudoFlowEnabled: enabled } : { sudoFlowEnabled: enabled, codexReasoningEffort: "medium" },
     );
     try {
       const settings = await setSudoFlowEnabled(enabled);
@@ -116,11 +116,26 @@ export function App() {
     }
   }
 
-  async function handleSudoDecision(allow: boolean) {
+  async function handleSetCodexModel(codexModel: string | undefined, codexReasoningEffort: CodexReasoningEffort) {
+    queryClient.setQueryData<AppSettings>(["app-settings"], (current) => ({
+      codexCliPath: current?.codexCliPath,
+      sudoFlowEnabled: current?.sudoFlowEnabled ?? false,
+      codexModel,
+      codexReasoningEffort,
+    }));
+    try {
+      const settings = await setCodexModelSettings({ codexModel, codexReasoningEffort });
+      queryClient.setQueryData(["app-settings"], settings);
+    } catch {
+      void appSettingsQuery.refetch();
+    }
+  }
+
+  async function handleSudoDecision(allow: boolean, password?: string) {
     if (!pendingSudoRequest) return;
     const request = pendingSudoRequest;
     setPendingSudoRequest(undefined);
-    await decideSudoRequest(request.taskId, request.requestId, allow);
+    await decideSudoRequest(request.taskId, request.requestId, allow, password);
     void recentTasksQuery.refetch();
   }
 
@@ -210,6 +225,7 @@ export function App() {
             profile={activeProfile}
             selectedTaskId={activeTaskId}
             selectedTaskTitle={activeTask?.title}
+            settings={appSettingsQuery.data}
             onTaskStarted={(taskId) => setActiveTaskId(taskId)}
             onOpenReview={() => setReviewOpen(true)}
             onSudoRequest={setPendingSudoRequest}
@@ -287,6 +303,7 @@ export function App() {
             profile={activeProfile}
             settings={appSettingsQuery.data}
             onSetSudoFlow={handleSetSudoFlow}
+            onSetCodexModel={handleSetCodexModel}
           />
         </Modal>
       ) : null}
@@ -308,7 +325,7 @@ export function App() {
           <SudoAuthorizationDialog
             request={pendingSudoRequest}
             onDeny={() => void handleSudoDecision(false)}
-            onAllow={() => void handleSudoDecision(true)}
+            onAllow={(password) => void handleSudoDecision(true, password)}
           />
         </Modal>
       ) : null}
@@ -323,8 +340,10 @@ function SudoAuthorizationDialog({
 }: {
   request: SudoRequest;
   onDeny: () => void;
-  onAllow: () => void;
+  onAllow: (password?: string) => void;
 }) {
+  const [password, setPassword] = useState("");
+
   return (
     <section className="sudo-dialog">
       <div className="review-banner">
@@ -347,12 +366,26 @@ function SudoAuthorizationDialog({
       </dl>
       <div className="sudo-command-list">
         {request.commands.map((command) => (
-          <code key={command}>sudo -n {command}</code>
+          <code key={command}>sudo {command}</code>
         ))}
       </div>
+      <label className="sudo-password-field">
+        <span>Sudo password</span>
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoFocus
+          autoComplete="current-password"
+          placeholder="Leave empty to use an existing sudo timestamp"
+        />
+      </label>
+      <p className="sudo-password-note">
+        The password is sent only for this approval attempt and is not stored in settings, logs, or audit records.
+      </p>
       <div className="button-row">
         <button className="secondary-action danger-action" onClick={onDeny}>Deny</button>
-        <button className="primary" onClick={onAllow}>Allow once</button>
+        <button className="primary" onClick={() => onAllow(password.trim() ? password : undefined)}>Allow once</button>
       </div>
     </section>
   );

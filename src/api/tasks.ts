@@ -56,8 +56,8 @@ export function applyTaskReview(taskId: string) {
   return invoke<ApplyReviewResult>("apply_task_review", { taskId });
 }
 
-export function decideSudoRequest(taskId: string, requestId: string, allow: boolean) {
-  return invoke<SudoDecisionResult>("decide_sudo_request", { taskId, requestId, allow });
+export function decideSudoRequest(taskId: string, requestId: string, allow: boolean, password?: string) {
+  return invoke<SudoDecisionResult>("decide_sudo_request", { taskId, requestId, allow, password });
 }
 
 export function rollbackTask(taskId: string) {

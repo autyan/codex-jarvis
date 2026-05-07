@@ -1,7 +1,7 @@
 import { Database, History, MonitorCog, SlidersHorizontal, ShieldCheck, Terminal, Wrench } from "lucide-react";
 import { useMemo, useState } from "react";
 import { linuxDomainLabels } from "../../data/profiles";
-import type { AppSettings, CodexCliInfo } from "../../types/codex";
+import type { AppSettings, CodexCliInfo, CodexReasoningEffort } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 
 type SettingsViewProps = {
@@ -9,9 +9,10 @@ type SettingsViewProps = {
   profile: TaskProfile;
   settings?: AppSettings;
   onSetSudoFlow: (enabled: boolean) => void;
+  onSetCodexModel: (codexModel: string | undefined, codexReasoningEffort: CodexReasoningEffort) => void;
 };
 
-export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow }: SettingsViewProps) {
+export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow, onSetCodexModel }: SettingsViewProps) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const profileJson = useMemo(() => JSON.stringify(profile, null, 2), [profile]);
   const [profileDraft, setProfileDraft] = useState(profileJson);
@@ -96,7 +97,47 @@ export function SettingsView({ codexInfo, profile, settings, onSetSudoFlow }: Se
               <dt>Version</dt>
               <dd>{codexInfo?.version ?? "Unknown"}</dd>
             </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{settings?.codexModel ?? "CLI default"}</dd>
+            </div>
+            <div>
+              <dt>Reasoning effort</dt>
+              <dd>{settings?.codexReasoningEffort ?? "medium"}</dd>
+            </div>
           </dl>
+          <div className="settings-form-grid">
+            <label>
+              <span>Model</span>
+              <select
+                value={settings?.codexModel ?? "__cli_default__"}
+                onChange={(event) =>
+                  onSetCodexModel(
+                    event.target.value === "__cli_default__" ? undefined : event.target.value,
+                    settings?.codexReasoningEffort ?? "medium",
+                  )
+                }
+              >
+                <option value="__cli_default__">CLI default</option>
+                <option value="gpt-5.5">gpt-5.5</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+              </select>
+            </label>
+            <label>
+              <span>Effort</span>
+              <select
+                value={settings?.codexReasoningEffort ?? "medium"}
+                onChange={(event) =>
+                  onSetCodexModel(settings?.codexModel, event.target.value as CodexReasoningEffort)
+                }
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
         </section>
 
         <section className="settings-card">

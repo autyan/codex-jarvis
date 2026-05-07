@@ -30,18 +30,40 @@ struct CodexCliInfo {
     error: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
     codex_cli_path: Option<String>,
     #[serde(default)]
     sudo_flow_enabled: bool,
+    #[serde(default)]
+    codex_model: Option<String>,
+    #[serde(default = "default_codex_reasoning_effort")]
+    codex_reasoning_effort: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            codex_cli_path: None,
+            sudo_flow_enabled: false,
+            codex_model: None,
+            codex_reasoning_effort: default_codex_reasoning_effort(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SetCodexCliPathRequest {
     path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetCodexModelSettingsRequest {
+    codex_model: Option<String>,
+    codex_reasoning_effort: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +101,8 @@ struct StartDiagnoseTaskRequest {
     attached_context: Option<String>,
     #[serde(default)]
     direct_execute: bool,
+    codex_model: Option<String>,
+    codex_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +115,8 @@ struct StartPatchTaskRequest {
     attached_context: Option<String>,
     #[serde(default)]
     direct_execute: bool,
+    codex_model: Option<String>,
+    codex_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -302,6 +328,18 @@ fn set_sudo_flow_enabled(enabled: bool) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+#[tauri::command]
+fn set_codex_model_settings(request: SetCodexModelSettingsRequest) -> Result<AppSettings, String> {
+    let mut settings = read_app_settings();
+    settings.codex_model = request
+        .codex_model
+        .and_then(|model| normalize_optional_model(&model));
+    settings.codex_reasoning_effort = normalize_reasoning_effort(&request.codex_reasoning_effort)
+        .ok_or_else(|| "Unsupported Codex reasoning effort".to_string())?;
+    write_app_settings(&settings)?;
+    Ok(settings)
+}
+
 fn validate_codex_cli_path(path: &str) -> CodexCliInfo {
     match Command::new(path).arg("--version").output() {
         Ok(output) if output.status.success() => CodexCliInfo {
@@ -346,6 +384,8 @@ fn start_diagnose_task(
 
     let attached_context = request.attached_context;
     let direct_execute = request.direct_execute;
+    let codex_model = request.codex_model;
+    let codex_reasoning_effort = configured_reasoning_effort(request.codex_reasoning_effort);
     let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &user_message);
@@ -406,7 +446,9 @@ fn start_diagnose_task(
             .arg("exec")
             .arg("--skip-git-repo-check")
             .arg("--sandbox")
-            .arg("read-only")
+            .arg("read-only");
+        apply_codex_model_options(&mut command, codex_model.as_deref(), &codex_reasoning_effort);
+        command
             .arg(task_prompt)
             .current_dir(&task_workspace)
             .stdin(Stdio::null())
@@ -491,6 +533,8 @@ fn start_patch_task(
 
     let attached_context = request.attached_context;
     let direct_execute = request.direct_execute;
+    let codex_model = request.codex_model;
+    let codex_reasoning_effort = configured_reasoning_effort(request.codex_reasoning_effort);
     let user_message = request.user_message.unwrap_or_else(|| prompt.clone());
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     persist_task_title_if_missing(&task_id, &user_message);
@@ -570,6 +614,7 @@ fn start_patch_task(
         for path in &runtime_write_paths {
             command.arg("--add-dir").arg(codex_add_dir_path(path));
         }
+        apply_codex_model_options(&mut command, codex_model.as_deref(), &codex_reasoning_effort);
         command
             .arg(task_prompt)
             .current_dir(&task_workspace)
@@ -841,7 +886,11 @@ fn apply_task_review(
     let profile = profile_by_id(&metadata.profile_id)
         .ok_or_else(|| format!("Unknown profile: {}", metadata.profile_id))?;
     let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
-    let sudo_flow_enabled = read_app_settings().sudo_flow_enabled;
+    let settings = read_app_settings();
+    let sudo_flow_enabled = settings.sudo_flow_enabled;
+    let codex_model = settings.codex_model.clone();
+    let codex_reasoning_effort = normalize_reasoning_effort(&settings.codex_reasoning_effort)
+        .unwrap_or_else(default_codex_reasoning_effort);
     if running_tasks
         .lock()
         .map_err(|_| "Task registry is unavailable".to_string())?
@@ -884,6 +933,8 @@ fn apply_task_review(
         task_workspace,
         codex_cli,
         proposal,
+        codex_model,
+        codex_reasoning_effort,
         sudo_flow_enabled,
     );
 
@@ -891,7 +942,13 @@ fn apply_task_review(
 }
 
 #[tauri::command]
-fn decide_sudo_request(app: AppHandle, task_id: String, request_id: String, allow: bool) -> Result<SudoDecisionResult, String> {
+fn decide_sudo_request(
+    app: AppHandle,
+    task_id: String,
+    request_id: String,
+    allow: bool,
+    password: Option<String>,
+) -> Result<SudoDecisionResult, String> {
     let request = read_pending_sudo_request(&task_id, &request_id)?;
 
     if !allow {
@@ -935,12 +992,12 @@ fn decide_sudo_request(app: AppHandle, task_id: String, request_id: String, allo
             TaskEvent {
                 task_id: task_id.clone(),
                 event: "stdout",
-                text: Some(format!("$ sudo -n {command}")),
+                text: Some(format!("$ sudo {command}")),
                 status: Some("running".to_string()),
                 exit_code: None,
             },
         );
-        let output = run_approved_sudo_command(command)?;
+        let output = run_approved_sudo_command(command, password.as_deref())?;
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if !stdout.is_empty() {
@@ -984,7 +1041,7 @@ fn decide_sudo_request(app: AppHandle, task_id: String, request_id: String, allo
             text: Some(if success {
                 "Sudo request execution finished".to_string()
             } else {
-                "Sudo request execution failed. If sudo needs a password, open Terminal and run the shown command manually.".to_string()
+                "Sudo request execution failed. Review stderr and retry with a valid sudo password if authentication failed.".to_string()
             }),
             status: Some(if success { "finished" } else { "failed" }.to_string()),
             exit_code: final_exit_code,
@@ -1470,6 +1527,8 @@ fn spawn_apply_execution(
     task_workspace: PathBuf,
     codex_cli: String,
     proposal: String,
+    codex_model: Option<String>,
+    codex_reasoning_effort: String,
     sudo_flow_enabled: bool,
 ) {
     thread::spawn(move || {
@@ -1506,6 +1565,7 @@ fn spawn_apply_execution(
         for path in &runtime_write_paths {
             command.arg("--add-dir").arg(codex_add_dir_path(path));
         }
+        apply_codex_model_options(&mut command, codex_model.as_deref(), &codex_reasoning_effort);
         command
             .arg(task_prompt)
             .current_dir(&task_workspace)
@@ -1576,6 +1636,43 @@ fn spawn_apply_execution(
 
 fn configured_codex_cli_path() -> Option<String> {
     read_app_settings().codex_cli_path
+}
+
+fn default_codex_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
+fn normalize_reasoning_effort(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "low" | "medium" | "high" => Some(value.trim().to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+fn normalize_optional_model(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "__cli_default__" {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn configured_reasoning_effort(request_value: Option<String>) -> String {
+    request_value
+        .as_deref()
+        .and_then(normalize_reasoning_effort)
+        .or_else(|| normalize_reasoning_effort(&read_app_settings().codex_reasoning_effort))
+        .unwrap_or_else(default_codex_reasoning_effort)
+}
+
+fn apply_codex_model_options(command: &mut Command, model: Option<&str>, reasoning_effort: &str) {
+    if let Some(model) = model.and_then(normalize_optional_model) {
+        command.arg("--model").arg(model);
+    }
+    command
+        .arg("-c")
+        .arg(format!("model_reasoning_effort=\"{}\"", reasoning_effort));
 }
 
 fn read_app_settings() -> AppSettings {
@@ -1989,14 +2086,32 @@ fn validate_sudo_command(domain: &str, command: &str) -> Result<(), String> {
     }
 }
 
-fn run_approved_sudo_command(command: &str) -> Result<std::process::Output, String> {
+fn run_approved_sudo_command(command: &str, password: Option<&str>) -> Result<std::process::Output, String> {
     let parts = command.split_whitespace().collect::<Vec<_>>();
     let mut sudo = Command::new("sudo");
-    sudo.arg("-n");
+    if password.is_some() {
+        sudo.arg("-S").arg("-p").arg("");
+        sudo.stdin(Stdio::piped());
+    } else {
+        sudo.arg("-n");
+        sudo.stdin(Stdio::null());
+    }
     for part in parts {
         sudo.arg(part);
     }
-    sudo.stdin(Stdio::null()).output().map_err(|error| error.to_string())
+    sudo.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = sudo.spawn().map_err(|error| error.to_string())?;
+    if let Some(password) = password {
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin
+                .write_all(password.as_bytes())
+                .and_then(|_| stdin.write_all(b"\n"))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    child.wait_with_output().map_err(|error| error.to_string())
 }
 
 fn emit_task_event(app: &AppHandle, event: TaskEvent) {
@@ -2434,6 +2549,7 @@ pub fn run() {
             set_codex_cli_path,
             get_app_settings,
             set_sudo_flow_enabled,
+            set_codex_model_settings,
             list_profiles,
             start_diagnose_task,
             start_patch_task,

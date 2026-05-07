@@ -16,6 +16,8 @@ export type StartDiagnoseTaskRequest = {
   userMessage?: string;
   attachedContext?: string;
   directExecute?: boolean;
+  codexModel?: string;
+  codexReasoningEffort?: "low" | "medium" | "high";
 };
 
 export type StartPatchTaskRequest = StartDiagnoseTaskRequest;

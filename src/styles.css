@@ -25,7 +25,8 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -1108,6 +1109,39 @@ textarea {
   color: #d7ba7d;
 }
 
+.settings-form-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.settings-form-grid label,
+.sudo-password-field {
+  display: grid;
+  gap: 5px;
+}
+
+.settings-form-grid span,
+.sudo-password-field span {
+  color: #969696;
+}
+
+.settings-form-grid select,
+.sudo-password-field input {
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  color: #d4d4d4;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.settings-form-grid select:focus,
+.sudo-password-field input:focus {
+  border-color: #007acc;
+  outline: none;
+}
+
 .profile-edit-button {
   background: #0e639c;
   border: 1px solid #1177bb;
@@ -1267,6 +1301,12 @@ textarea {
 .sudo-command-list code {
   color: #dcdcaa;
   overflow-wrap: anywhere;
+}
+
+.sudo-password-note {
+  color: #969696;
+  font-size: 12px;
+  margin: 0;
 }
 
 .profile-picker {

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
+import type { AppSettings } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 import type { PersistedTaskEvent, SudoRequest, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
@@ -11,6 +12,7 @@ type TaskRunnerProps = {
   profile: TaskProfile;
   selectedTaskId?: string;
   selectedTaskTitle?: string;
+  settings?: AppSettings;
   onTaskStarted: (taskId: string) => void;
   onOpenReview: () => void;
   onSudoRequest: (request: SudoRequest) => void;
@@ -25,6 +27,7 @@ export function TaskRunner({
   profile,
   selectedTaskId,
   selectedTaskTitle,
+  settings,
   onTaskStarted,
   onOpenReview,
   onSudoRequest,
@@ -175,6 +178,8 @@ export function TaskRunner({
         userMessage: prompt,
         attachedContext,
         directExecute,
+        codexModel: settings?.codexModel,
+        codexReasoningEffort: settings?.codexReasoningEffort ?? "medium",
       };
       const response = profile.writeEnabled ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
@@ -337,12 +342,18 @@ function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinu
   if (!isContinuation || !logs.length) return message;
 
   const transcript = logs
-    .filter((log) => log.source === "user" || log.source === "assistant" || log.source === "stdout")
-    .slice(-40)
-    .map((log) => `[${log.source}] ${log.text}`)
+    .filter((log) => log.source === "user" || log.source === "assistant")
+    .slice(-24)
+    .map((log) => `[${log.source}] ${compactTranscriptText(log.text)}`)
     .join("\n");
 
   return `Continue this Codex Jarvis conversation using the recent transcript as context.\n\nRecent transcript:\n${transcript}\n\nUser message:\n${message}`;
+}
+
+function compactTranscriptText(text: string) {
+  const limit = 3000;
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n[truncated]`;
 }
 
 function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
