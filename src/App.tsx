@@ -15,6 +15,7 @@ import { detectCodexCli } from "./api/codex";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
+import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
 import type { WorkspaceTab } from "./types/workspace";
 
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{ size?: number }> }> = [
@@ -73,7 +74,7 @@ export function App() {
                 onClick={() => setActiveProfileId(profile.id)}
               >
                 <span>{profile.name}</span>
-                <small>{profile.mode}</small>
+                <small>{formatTaskMode(profile.defaultMode)}</small>
               </button>
             ))}
           </nav>
@@ -124,11 +125,11 @@ export function App() {
           <dl>
             <div>
               <dt>Mode</dt>
-              <dd>{activeProfile.mode}</dd>
+              <dd>{formatTaskMode(activeProfile.defaultMode)}</dd>
             </div>
             <div>
               <dt>Snapshots</dt>
-              <dd>On</dd>
+              <dd>{activeProfile.snapshotRequired ? "On" : "Off"}</dd>
             </div>
             <div>
               <dt>Sudo</dt>
@@ -143,9 +144,23 @@ export function App() {
         <section className="info-card">
           <h2>Profile</h2>
           <p>{activeProfile.description}</p>
+          <dl className="compact-dl">
+            <div>
+              <dt>cwd</dt>
+              <dd>{activeProfile.cwd}</dd>
+            </div>
+            <div>
+              <dt>Writes</dt>
+              <dd>{activeProfile.writeEnabled ? "Enabled" : "Disabled"}</dd>
+            </div>
+          </dl>
+        </section>
+        <PolicySummary profile={activeProfile} />
+        <section className="info-card">
+          <h2>Context Commands</h2>
           <div className="path-list">
-            {activeProfile.paths.map((path) => (
-              <code key={path}>{path}</code>
+            {activeProfile.readonlyCommands.map((command) => (
+              <code key={command}>{command}</code>
             ))}
           </div>
         </section>
@@ -155,6 +170,31 @@ export function App() {
         </section>
       </aside>
     </div>
+  );
+}
+
+function PolicySummary({ profile }: { profile: TaskProfile }) {
+  const summary = profilePathSummary(profile);
+  const groups: PathPolicyGroup[] = [
+    { label: `Readable (${summary.readable})`, paths: profile.readPaths },
+    { label: `Writable (${summary.writable})`, paths: profile.writePaths },
+    { label: `Denied (${summary.denied})`, paths: profile.denyPaths },
+  ];
+
+  return (
+    <section className="info-card">
+      <h2>Path Policy</h2>
+      <div className="policy-groups">
+        {groups.map((group) => (
+          <details key={group.label}>
+            <summary>{group.label}</summary>
+            <div className="path-list">
+              {group.paths.length ? group.paths.map((path) => <code key={path}>{path}</code>) : <span>None</span>}
+            </div>
+          </details>
+        ))}
+      </div>
+    </section>
   );
 }
 

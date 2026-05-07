@@ -1,8 +1,31 @@
 export type TaskProfile = {
   id: string;
   name: string;
-  mode: "Diagnose" | "Patch" | "Suggest";
   description: string;
-  paths: string[];
+  defaultMode: "diagnose" | "patch" | "suggest_commands";
+  cwd: string;
+  writeEnabled: boolean;
+  snapshotRequired: boolean;
+  readPaths: string[];
+  writePaths: string[];
+  denyPaths: string[];
+  readonlyCommands: string[];
 };
 
+export function formatTaskMode(mode: TaskProfile["defaultMode"]) {
+  if (mode === "suggest_commands") return "Suggest";
+  return mode[0].toUpperCase() + mode.slice(1);
+}
+
+export function profilePathSummary(profile: TaskProfile) {
+  return {
+    readable: profile.readPaths.length,
+    writable: profile.writePaths.length,
+    denied: profile.denyPaths.length,
+  };
+}
+
+export type PathPolicyGroup = {
+  label: string;
+  paths: string[];
+};

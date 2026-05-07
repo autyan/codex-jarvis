@@ -361,6 +361,10 @@ dl {
   margin: 0;
 }
 
+.compact-dl {
+  margin-top: 12px;
+}
+
 dl div {
   display: flex;
   justify-content: space-between;
@@ -378,6 +382,27 @@ dd {
   display: grid;
   gap: 6px;
   margin-top: 12px;
+}
+
+.policy-groups {
+  display: grid;
+  gap: 8px;
+}
+
+details {
+  border-top: 1px solid #e1dcd3;
+  padding-top: 8px;
+}
+
+details:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+summary {
+  color: #35413d;
+  cursor: pointer;
+  font-weight: 650;
 }
 
 code {
