@@ -53,6 +53,8 @@ export function App() {
   const codexReady = setupStatus === "ready";
   const pinnedTasks = (recentTasksQuery.data ?? []).filter((task) => pinnedTaskIds.includes(task.taskId));
   const recentTasks = (recentTasksQuery.data ?? []).filter((task) => !pinnedTaskIds.includes(task.taskId));
+  const allTasks = recentTasksQuery.data ?? [];
+  const activeTask = allTasks.find((task) => task.taskId === activeTaskId);
 
   useEffect(() => {
     function disableDefaultContextMenu(event: globalThis.MouseEvent) {
@@ -164,6 +166,7 @@ export function App() {
           <TaskRunner
             profile={activeProfile}
             selectedTaskId={activeTaskId}
+            selectedTaskTitle={activeTask?.title}
             onTaskStarted={(taskId) => setActiveTaskId(taskId)}
             onOpenReview={() => setReviewOpen(true)}
             attachedContext={attachedTerminalOutput}

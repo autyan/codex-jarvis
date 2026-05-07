@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ChangedFile,
+  ChangedFileContent,
   RollbackResult,
   StartDiagnoseTaskRequest,
   StartPatchTaskRequest,
@@ -39,6 +40,10 @@ export function listChangedFiles(taskId: string) {
 
 export function getTaskDiff(taskId: string) {
   return invoke<string>("get_task_diff", { taskId });
+}
+
+export function readChangedFile(taskId: string, path: string) {
+  return invoke<ChangedFileContent>("read_changed_file", { taskId, path });
 }
 
 export function rollbackTask(taskId: string) {

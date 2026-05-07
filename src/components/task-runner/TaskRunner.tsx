@@ -10,6 +10,7 @@ import { VirtualLog } from "./VirtualLog";
 type TaskRunnerProps = {
   profile: TaskProfile;
   selectedTaskId?: string;
+  selectedTaskTitle?: string;
   onTaskStarted: (taskId: string) => void;
   onOpenReview: () => void;
   attachedContext?: string;
@@ -21,6 +22,7 @@ const defaultPrompt = "";
 export function TaskRunner({
   profile,
   selectedTaskId,
+  selectedTaskTitle,
   onTaskStarted,
   onOpenReview,
   attachedContext,
@@ -46,6 +48,7 @@ export function TaskRunner({
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
   const canApplyProposal = status === "awaiting_review";
+  const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
 
   useEffect(() => {
     let isMounted = true;
@@ -175,7 +178,7 @@ export function TaskRunner({
     <section className="workspace-panel task-runner">
       <div className="section-heading">
         <div>
-          <h2>{taskId ? "Conversation" : "New Conversation"}</h2>
+          <h2>{displayTitle}</h2>
           <span>{taskId ?? `${profile.name} profile`}</span>
         </div>
         <div className={`task-status status-${status}`}>{statusLabel}</div>

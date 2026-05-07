@@ -84,6 +84,11 @@ export type ChangedFile = {
   afterHash?: string;
 };
 
+export type ChangedFileContent = {
+  path: string;
+  content: string;
+};
+
 export type RollbackResult = {
   taskId: string;
   restored: string[];

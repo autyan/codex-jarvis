@@ -161,6 +161,13 @@ struct ChangedFile {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ChangedFileContent {
+    path: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RollbackResult {
     task_id: String,
     restored: Vec<String>,
@@ -680,6 +687,23 @@ fn get_task_diff(task_id: String) -> Result<String, String> {
         return Ok(String::new());
     }
     fs::read_to_string(path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn read_changed_file(task_id: String, path: String) -> Result<ChangedFileContent, String> {
+    let changed_files = list_changed_files(task_id)?;
+    let Some(file) = changed_files.iter().find(|file| file.path == path) else {
+        return Err("File is not part of this review".to_string());
+    };
+    if file.status == "deleted" {
+        return Err("Deleted files do not have current content".to_string());
+    }
+
+    let content = fs::read_to_string(&file.path).map_err(|error| error.to_string())?;
+    Ok(ChangedFileContent {
+        path: file.path.clone(),
+        content,
+    })
 }
 
 #[tauri::command]
@@ -1781,6 +1805,7 @@ pub fn run() {
             list_recent_tasks,
             list_changed_files,
             get_task_diff,
+            read_changed_file,
             rollback_task,
             start_terminal,
             write_terminal,
