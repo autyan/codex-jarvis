@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
 import { listRecentTasks } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
@@ -21,6 +21,7 @@ export function App() {
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalWidth, setTerminalWidth] = useState(360);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -56,12 +57,33 @@ export function App() {
     );
   }
 
+  function startTerminalResize(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = terminalWidth;
+
+    function handleMove(moveEvent: globalThis.MouseEvent) {
+      const nextWidth = startWidth - (moveEvent.clientX - startX);
+      setTerminalWidth(Math.min(620, Math.max(280, nextWidth)));
+    }
+
+    function handleUp() {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    }
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  }
+
   return (
-    <div className={terminalOpen ? "app-shell terminal-open" : "app-shell"}>
+    <div
+      className={terminalOpen ? "app-shell terminal-open" : "app-shell"}
+      style={terminalOpen ? { gridTemplateColumns: `220px minmax(640px, 1fr) ${terminalWidth}px` } : undefined}
+    >
       <header className="top-bar">
         <div>
-          <p className="eyebrow">Codex Jarvis</p>
-          <h1>Task Workspace</h1>
+          <h1>Codex Jarvis</h1>
         </div>
         <div className="top-status">
           <button className="status-pill" onClick={() => !codexReady && setSetupOpen(true)}>
@@ -121,9 +143,12 @@ export function App() {
 
       <aside className={terminalOpen ? "terminal-dock open" : "terminal-dock"}>
         {terminalOpen ? (
-          <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
-            <TerminalView profile={activeProfile} onAttachOutput={setAttachedTerminalOutput} />
-          </Suspense>
+          <>
+            <div className="terminal-resizer" onMouseDown={startTerminalResize} />
+            <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
+              <TerminalView profile={activeProfile} onAttachOutput={setAttachedTerminalOutput} />
+            </Suspense>
+          </>
         ) : (
           <button className="terminal-rail" onClick={() => setTerminalOpen(true)} aria-label="Open terminal">
             <Terminal size={18} />

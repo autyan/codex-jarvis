@@ -18,7 +18,7 @@ export function VirtualLog({ logs }: VirtualLogProps) {
   if (!logs.length) {
     return (
       <div className="output-box task-output">
-        <p>Run a diagnose task to collect context and stream Codex output.</p>
+        <p>Start a conversation with Codex. Recent messages load here and remain scrollable.</p>
       </div>
     );
   }
@@ -52,4 +52,3 @@ export function VirtualLog({ logs }: VirtualLogProps) {
     </div>
   );
 }
-

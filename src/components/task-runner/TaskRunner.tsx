@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Play, RotateCcw, Terminal } from "lucide-react";
+import { Ban, Plus, Send, Terminal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
@@ -16,7 +16,7 @@ type TaskRunnerProps = {
   onClearAttachedContext: () => void;
 };
 
-const defaultPrompt = "Check whether my shell PATH is configured cleanly.";
+const defaultPrompt = "";
 
 export function TaskRunner({
   profile,
@@ -100,29 +100,37 @@ export function TaskRunner({
   }, [status]);
 
   async function handleStart() {
-    const nextTaskId = `task_${Date.now()}`;
+    const nextTaskId = taskId ?? `task_${Date.now()}`;
     activeTaskIdRef.current = nextTaskId;
     setTaskId(nextTaskId);
     onTaskStarted(nextTaskId);
     setStatus("starting");
-    setLogs([
+    setLogs((currentLogs) => [
+      ...currentLogs,
       {
-        id: "local-start",
+        id: `user-${Date.now()}`,
         source: "system",
-        text: "Starting diagnose task...",
+        text: `You: ${prompt}`,
+      },
+      {
+        id: `local-start-${Date.now()}`,
+        source: "system",
+        text: "Sending message to Codex...",
       },
     ]);
 
     try {
+      const message = buildConversationPrompt(prompt, logs, Boolean(taskId));
       const request = {
         taskId: nextTaskId,
         profileId: profile.id,
-        prompt,
+        prompt: message,
         attachedContext,
       };
       const response = mode === "patch" ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
       setStatus("running");
+      setPrompt("");
     } catch (error) {
       setStatus("failed");
       setLogs((currentLogs) => [
@@ -164,20 +172,24 @@ export function TaskRunner({
     <section className="workspace-panel task-runner">
       <div className="section-heading">
         <div>
-          <h2>{taskId ? "Current Task" : "New Task"}</h2>
+          <h2>{taskId ? "Conversation" : "New Conversation"}</h2>
           <span>{taskId ?? `${profile.name} profile`}</span>
         </div>
         <div className={`task-status status-${status}`}>{statusLabel}</div>
       </div>
 
       <label className="prompt-box">
-        <span>Prompt</span>
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        <span>Message</span>
+        <textarea
+          placeholder="Ask Codex to inspect, explain, change, or continue this workspace..."
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+        />
       </label>
 
-      <div className="mode-selector" aria-label="Task mode">
+      <div className="mode-selector" aria-label="Execution mode">
         <button className={mode === "diagnose" ? "active" : ""} onClick={() => setMode("diagnose")}>
-          Diagnose
+          Read-only
         </button>
         <button
           className={mode === "patch" ? "active" : ""}
@@ -202,22 +214,33 @@ export function TaskRunner({
           Terminal
         </button>
         <button className="secondary-action" onClick={resetTask} disabled={isActive}>
-          <RotateCcw size={16} />
-          Reset
+          <Plus size={16} />
+          New
         </button>
         <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
           <Ban size={16} />
           Cancel
         </button>
         <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
-          <Play size={16} />
-          Run {mode === "patch" ? "Patch" : "Diagnose"}
+          <Send size={16} />
+          Send
         </button>
       </div>
 
       <VirtualLog logs={logs} />
     </section>
   );
+}
+
+function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinuation: boolean) {
+  if (!isContinuation || !logs.length) return message;
+
+  const transcript = logs
+    .slice(-80)
+    .map((log) => `[${log.source}] ${log.text}`)
+    .join("\n");
+
+  return `Continue this Codex Jarvis conversation using the recent transcript as context.\n\nRecent transcript:\n${transcript}\n\nUser message:\n${message}`;
 }
 
 function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {

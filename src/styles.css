@@ -24,15 +24,15 @@ textarea {
 .app-shell {
   display: grid;
   grid-template:
-    "top top top" 44px
+    "top top top" 32px
     "side main terminal" minmax(0, 1fr)
-    "bottom bottom bottom" 32px
+    "bottom bottom bottom" 24px
     / 220px minmax(520px, 1fr) 34px;
   min-height: 100vh;
 }
 
 .app-shell.terminal-open {
-  grid-template-columns: 220px minmax(520px, 1fr) 360px;
+  grid-template-columns: 220px minmax(640px, 1fr) 360px;
 }
 
 .top-bar {
@@ -42,7 +42,7 @@ textarea {
   display: flex;
   grid-area: top;
   justify-content: space-between;
-  padding: 0 10px 0 14px;
+  padding: 0 8px 0 12px;
 }
 
 .top-bar h1,
@@ -60,7 +60,7 @@ textarea {
 
 .top-bar h1 {
   color: #e7e7e7;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -100,8 +100,8 @@ textarea {
   color: #9cdcfe;
   display: inline-flex;
   gap: 6px;
-  height: 28px;
-  padding: 0 9px;
+  height: 24px;
+  padding: 0 8px;
 }
 
 .icon-button {
@@ -111,9 +111,9 @@ textarea {
   border-radius: 4px;
   color: #cccccc;
   display: inline-flex;
-  height: 28px;
+  height: 24px;
   justify-content: center;
-  width: 28px;
+  width: 24px;
 }
 
 .sidebar {
@@ -249,7 +249,7 @@ textarea {
 
 .workspace-panel,
 .setup-view {
-  min-height: calc(100vh - 96px);
+  min-height: calc(100vh - 66px);
   padding: 10px;
 }
 
@@ -384,7 +384,7 @@ textarea {
   border: 1px solid #3c3c3c;
   border-radius: 3px;
   color: #d4d4d4;
-  min-height: 86px;
+  min-height: 72px;
   padding: 8px;
   resize: vertical;
 }
@@ -521,6 +521,7 @@ textarea {
   grid-area: terminal;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .terminal-dock.open {
@@ -529,7 +530,21 @@ textarea {
 
 .terminal-dock .workspace-panel,
 .terminal-dock .terminal-workspace {
-  min-height: calc(100vh - 76px);
+  min-height: calc(100vh - 56px);
+}
+
+.terminal-resizer {
+  bottom: 0;
+  cursor: col-resize;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 5px;
+  z-index: 2;
+}
+
+.terminal-resizer:hover {
+  background: #007acc;
 }
 
 .terminal-rail {
@@ -742,7 +757,7 @@ textarea {
   display: flex;
   gap: 2px;
   grid-area: bottom;
-  padding: 0 8px;
+  padding: 0 6px;
 }
 
 .bottom-activity button {
@@ -752,9 +767,10 @@ textarea {
   border-radius: 0;
   color: #ffffff;
   display: inline-flex;
-  gap: 6px;
-  height: 32px;
-  padding: 0 9px;
+  font-size: 12px;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
 }
 
 .bottom-activity button.active,
