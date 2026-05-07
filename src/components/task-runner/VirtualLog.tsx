@@ -7,11 +7,20 @@ type VirtualLogProps = {
   isInitialLoading?: boolean;
   isLoadingOlder?: boolean;
   onLoadOlder?: () => void;
+  scrollToLatestKey?: string;
 };
 
-export function VirtualLog({ messages, hasOlder, isInitialLoading, isLoadingOlder, onLoadOlder }: VirtualLogProps) {
+export function VirtualLog({
+  messages,
+  hasOlder,
+  isInitialLoading,
+  isLoadingOlder,
+  onLoadOlder,
+  scrollToLatestKey,
+}: VirtualLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const pendingAnchorRef = useRef<{ id: string; offset: number } | undefined>(undefined);
+  const lastScrollToLatestKeyRef = useRef<string | undefined>(undefined);
   const [messageMenu, setMessageMenu] = useState<{ x: number; y: number; text: string; label: string }>();
   const messageCount = messages.length;
 
@@ -25,6 +34,13 @@ export function VirtualLog({ messages, hasOlder, isInitialLoading, isLoadingOlde
     root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset;
     pendingAnchorRef.current = undefined;
   }, [messageCount, isLoadingOlder]);
+
+  useLayoutEffect(() => {
+    const root = parentRef.current;
+    if (!root || !scrollToLatestKey || lastScrollToLatestKeyRef.current === scrollToLatestKey || isLoadingOlder) return;
+    root.scrollTop = root.scrollHeight;
+    lastScrollToLatestKeyRef.current = scrollToLatestKey;
+  }, [isLoadingOlder, messageCount, scrollToLatestKey]);
 
   useEffect(() => {
     if (!messageMenu) return;

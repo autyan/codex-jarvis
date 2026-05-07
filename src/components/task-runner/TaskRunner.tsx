@@ -413,6 +413,7 @@ export function TaskRunner({
           isInitialLoading={isInitialLoading}
           isLoadingOlder={isLoadingOlder}
           onLoadOlder={loadOlderEvents}
+          scrollToLatestKey={taskId}
         />
 
         <div className="composer-panel">
