@@ -1,0 +1,307 @@
+@import "tailwindcss";
+
+:root {
+  color: #18201f;
+  background: #f4f2ee;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template:
+    "top top top" 72px
+    "side main inspect" minmax(0, 1fr)
+    / 236px minmax(520px, 1fr) 292px;
+  min-height: 100vh;
+}
+
+.top-bar {
+  align-items: center;
+  background: #fbfaf7;
+  border-bottom: 1px solid #d9d5cd;
+  display: flex;
+  grid-area: top;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.top-bar h1,
+.section-heading h2,
+.info-card h2 {
+  margin: 0;
+}
+
+.eyebrow {
+  color: #626b67;
+  font-size: 12px;
+  margin: 0 0 2px;
+  text-transform: uppercase;
+}
+
+.top-status,
+.top-status span,
+.panel-title,
+.tab,
+.button-row {
+  align-items: center;
+  display: flex;
+}
+
+.top-status {
+  gap: 12px;
+}
+
+.top-status span,
+.panel-title {
+  color: #3f4a46;
+  gap: 6px;
+}
+
+.icon-button {
+  align-items: center;
+  background: #ece7df;
+  border: 1px solid #d2ccc1;
+  border-radius: 8px;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.sidebar {
+  background: #ebe7df;
+  border-right: 1px solid #d4cec4;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  grid-area: side;
+  padding: 18px 14px;
+}
+
+.sidebar h2 {
+  color: #66716c;
+  font-size: 12px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.nav-list {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-item {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #26302d;
+  display: flex;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.nav-item small {
+  color: #68736e;
+}
+
+.nav-item.active {
+  background: #fbfaf7;
+  border-color: #d2ccc1;
+}
+
+.nav-list.compact .nav-item {
+  display: block;
+}
+
+.workspace {
+  background: #f4f2ee;
+  grid-area: main;
+  min-width: 0;
+  padding: 16px;
+}
+
+.tab-bar {
+  border-bottom: 1px solid #d8d2c8;
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #59635f;
+  gap: 7px;
+  padding: 10px 14px;
+}
+
+.tab.active {
+  border-color: #2f6f61;
+  color: #14211e;
+}
+
+.workspace-panel,
+.info-card {
+  background: #fbfaf7;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+}
+
+.workspace-panel {
+  min-height: calc(100vh - 120px);
+  padding: 18px;
+}
+
+.section-heading {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-heading span {
+  color: #65706b;
+}
+
+.prompt-box {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-box span {
+  color: #48534f;
+  font-weight: 600;
+}
+
+textarea {
+  background: #fffefb;
+  border: 1px solid #cbc4b8;
+  border-radius: 8px;
+  min-height: 132px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.button-row {
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.button-row button {
+  background: #ebe7df;
+  border: 1px solid #cac3b8;
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+.button-row .primary {
+  background: #1f6b5d;
+  border-color: #1f6b5d;
+  color: #fff;
+}
+
+.output-box,
+.terminal-panel pre,
+.event-list,
+.empty-state {
+  background: #141a18;
+  border-radius: 8px;
+  color: #dce7e2;
+  min-height: 220px;
+  padding: 14px;
+}
+
+.terminal-panel pre {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.empty-state {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.inspector {
+  background: #fbfaf7;
+  border-left: 1px solid #d4cec4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-area: inspect;
+  padding: 18px 14px;
+}
+
+.panel-title {
+  font-weight: 700;
+}
+
+.info-card {
+  padding: 14px;
+}
+
+.info-card h2 {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.info-card p {
+  color: #4f5a55;
+  margin: 0;
+}
+
+dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+dl div {
+  display: flex;
+  justify-content: space-between;
+}
+
+dt {
+  color: #69736f;
+}
+
+dd {
+  margin: 0;
+}
+
+.path-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+code {
+  background: #eee9e0;
+  border-radius: 6px;
+  color: #26302d;
+  padding: 4px 6px;
+}
+
