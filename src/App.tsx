@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
 import { listRecentTasks } from "./api/tasks";
@@ -79,13 +79,23 @@ export function App() {
     window.addEventListener("mouseup", handleUp);
   }
 
+  function startWindowDrag(event: MouseEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    void getCurrentWindow().startDragging();
+  }
+
+  function toggleWindowMaximize() {
+    void getCurrentWindow().toggleMaximize();
+  }
+
   return (
     <div
       className={terminalOpen ? "app-shell terminal-open" : "app-shell"}
       style={terminalOpen ? { gridTemplateColumns: `220px minmax(200px, 1fr) ${terminalWidth}px` } : undefined}
     >
-      <header className="top-bar" data-tauri-drag-region>
-        <div data-tauri-drag-region>
+      <header className="top-bar" onMouseDown={startWindowDrag} onDoubleClick={toggleWindowMaximize}>
+        <div className="title-drag-region">
           <h1>Codex Jarvis</h1>
         </div>
         <div className="top-status">
@@ -224,13 +234,13 @@ export function App() {
 }
 
 function WindowControls() {
-  const appWindow = getCurrentWindow();
+  const appWindow: TauriWindow = getCurrentWindow();
 
   return (
     <div className="window-controls">
-      <button aria-label="Minimize" onClick={() => void appWindow.minimize()}>−</button>
-      <button aria-label="Maximize" onClick={() => void appWindow.toggleMaximize()}>□</button>
-      <button aria-label="Close" onClick={() => void appWindow.close()}>×</button>
+      <button aria-label="Minimize" onMouseDown={(event) => event.stopPropagation()} onClick={() => void appWindow.minimize()}>−</button>
+      <button aria-label="Maximize" onMouseDown={(event) => event.stopPropagation()} onClick={() => void appWindow.toggleMaximize()}>□</button>
+      <button aria-label="Close" onMouseDown={(event) => event.stopPropagation()} onClick={() => void appWindow.close()}>×</button>
     </div>
   );
 }

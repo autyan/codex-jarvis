@@ -57,6 +57,14 @@ input {
   user-select: none;
 }
 
+.title-drag-region {
+  align-items: center;
+  align-self: stretch;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
 .top-bar h1,
 .section-heading h2,
 .info-card h2 {
