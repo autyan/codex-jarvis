@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, CheckCircle2, FileDiff, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
+import { Ban, CheckCircle2, ChevronDown, ChevronRight, FileDiff, Gauge, Info, ScrollText, Send, ShieldAlert, TerminalSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { AppSettings } from "../../types/codex";
@@ -338,157 +338,175 @@ function TaskSideTools({
   tokenEstimate: { label: string; approximateTokens: number; chatMessages: number };
   attachedContext?: string;
 }) {
-  const tabs: Array<{ id: ToolTab; label: string }> = [
-    { id: "proposal", label: "Proposal" },
-    { id: "changes", label: "Changes" },
-    { id: "context", label: "Context" },
-    { id: "token", label: "Token" },
-    { id: "execution", label: "Execution" },
-  ];
-
   return (
     <aside className="task-side-tools">
-      <nav className="tool-tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeTool === tab.id ? "active" : ""}
-            onClick={() => onSelectTool(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      <div className="inspector-title">
+        <strong>Tools</strong>
+        <span>{isActive ? "running" : "ready"}</span>
+      </div>
 
-      {activeTool === "proposal" ? (
-        <ToolPanel icon={<ScrollText size={15} />} title="Current Proposal">
-          <p>
-            Proposal evolves as you chat. Keep talking until the decision is clear, then review and apply it explicitly.
-          </p>
-          <dl className="compact-dl">
-            <div>
-              <dt>Status</dt>
-              <dd>{canApplyProposal ? "Proposal ready" : "No reviewable proposal"}</dd>
-            </div>
-            <div>
-              <dt>Execution</dt>
-              <dd>{directExecute ? "Direct execute enabled" : "Apply required"}</dd>
-            </div>
-          </dl>
+      <InspectorSection
+        active={activeTool === "proposal"}
+        icon={<ScrollText size={15} />}
+        title="Proposal"
+        status={canApplyProposal ? "ready" : "none"}
+        onToggle={() => onSelectTool(activeTool === "proposal" ? "changes" : "proposal")}
+      >
+        <p>Decision draft evolves in chat. Apply only when it is ready.</p>
+        <dl className="compact-dl">
+          <div>
+            <dt>Status</dt>
+            <dd>{canApplyProposal ? "Reviewable" : "No proposal"}</dd>
+          </div>
+          <div>
+            <dt>Execution</dt>
+            <dd>{directExecute ? "Direct" : "Apply required"}</dd>
+          </div>
+        </dl>
+        <div className="tool-action-row">
           <button className="tool-primary-action" onClick={onOpenReview} disabled={!canApplyProposal || isActive}>
             <CheckCircle2 size={14} />
             Review / Apply
           </button>
-        </ToolPanel>
-      ) : null}
+        </div>
+      </InspectorSection>
 
-      {activeTool === "changes" ? (
-        <ToolPanel icon={<FileDiff size={15} />} title="Snapshot & Diff">
-          <p>Snapshots and diffs are created during apply/review work and stay out of the chat transcript.</p>
-          <dl className="compact-dl">
-            <div>
-              <dt>Changed files</dt>
-              <dd>{changedFiles.length}</dd>
-            </div>
-            <div>
-              <dt>Rollback</dt>
-              <dd>{changedFiles.length ? "Available in Review" : "No changes yet"}</dd>
-            </div>
-          </dl>
-          <div className="tool-list">
-            {changedFiles.slice(0, 8).map((file) => (
-              <span key={file.path}>{file.status}: {file.path}</span>
-            ))}
-            {!changedFiles.length ? <span>No changed files detected.</span> : null}
+      <InspectorSection
+        active={activeTool === "changes"}
+        icon={<FileDiff size={15} />}
+        title="Changes"
+        status={`${changedFiles.length} files`}
+        onToggle={() => onSelectTool(activeTool === "changes" ? "proposal" : "changes")}
+      >
+        <dl className="compact-dl">
+          <div>
+            <dt>Snapshot</dt>
+            <dd>{changedFiles.length ? "captured" : "pending"}</dd>
           </div>
-        </ToolPanel>
-      ) : null}
-
-      {activeTool === "context" ? (
-        <ToolPanel icon={<Info size={15} />} title="Context Window">
-          <dl className="compact-dl">
-            <div>
-              <dt>Session</dt>
-              <dd>{taskId ?? "New conversation"}</dd>
-            </div>
-            <div>
-              <dt>Profile</dt>
-              <dd>{profile.name}</dd>
-            </div>
-            <div>
-              <dt>Chat window</dt>
-              <dd>Recent 24 chat messages</dd>
-            </div>
-            <div>
-              <dt>Terminal attach</dt>
-              <dd>{attachedContext ? "Attached selection" : "None"}</dd>
-            </div>
-          </dl>
-        </ToolPanel>
-      ) : null}
-
-      {activeTool === "token" ? (
-        <ToolPanel icon={<Info size={15} />} title="Token Budget">
-          <dl className="compact-dl">
-            <div>
-              <dt>Size</dt>
-              <dd>{tokenEstimate.label}</dd>
-            </div>
-            <div>
-              <dt>Approx tokens</dt>
-              <dd>{tokenEstimate.approximateTokens}</dd>
-            </div>
-            <div>
-              <dt>Chat messages</dt>
-              <dd>{tokenEstimate.chatMessages}</dd>
-            </div>
-            <div>
-              <dt>Model</dt>
-              <dd>{settings?.codexModel ?? "CLI default"}</dd>
-            </div>
-            <div>
-              <dt>Effort</dt>
-              <dd>{settings?.codexReasoningEffort ?? "medium"}</dd>
-            </div>
-          </dl>
-        </ToolPanel>
-      ) : null}
-
-      {activeTool === "execution" ? (
-        <ToolPanel icon={<TerminalSquare size={15} />} title="Execution">
-          <dl className="compact-dl">
-            <div>
-              <dt>Status</dt>
-              <dd>{statusLabel}</dd>
-            </div>
-            <div>
-              <dt>Tool events</dt>
-              <dd>{toolLogs.length}</dd>
-            </div>
-          </dl>
-          <div className="execution-log side-execution-log">
-            {toolLogs.slice(-80).map((line) => (
-              <div key={line.id} className={`log-line source-${line.source}`}>
-                <span>{line.source}</span>
-                <pre>{line.text}</pre>
-              </div>
-            ))}
-            {!toolLogs.length ? <p>No tool events yet.</p> : null}
+          <div>
+            <dt>Rollback</dt>
+            <dd>{changedFiles.length ? "available" : "none"}</dd>
           </div>
-        </ToolPanel>
-      ) : null}
+        </dl>
+        <div className="tool-list">
+          {changedFiles.slice(0, 8).map((file) => (
+            <span key={file.path}>{file.status}: {file.path}</span>
+          ))}
+          {!changedFiles.length ? <span>No changed files.</span> : null}
+        </div>
+      </InspectorSection>
+
+      <InspectorSection
+        active={activeTool === "execution"}
+        icon={<TerminalSquare size={15} />}
+        title="Execution"
+        status={statusLabel}
+        onToggle={() => onSelectTool(activeTool === "execution" ? "proposal" : "execution")}
+      >
+        <dl className="compact-dl">
+          <div>
+            <dt>Tool events</dt>
+            <dd>{toolLogs.length}</dd>
+          </div>
+          <div>
+            <dt>Sudo</dt>
+            <dd>controlled flow</dd>
+          </div>
+        </dl>
+        <div className="execution-log side-execution-log">
+          {toolLogs.slice(-80).map((line) => (
+            <div key={line.id} className={`log-line source-${line.source}`}>
+              <span>{line.source}</span>
+              <pre>{line.text}</pre>
+            </div>
+          ))}
+          {!toolLogs.length ? <p>No tool events.</p> : null}
+        </div>
+      </InspectorSection>
+
+      <InspectorSection
+        active={activeTool === "context"}
+        icon={<Info size={15} />}
+        title="Context"
+        status={attachedContext ? "terminal attached" : "chat only"}
+        onToggle={() => onSelectTool(activeTool === "context" ? "proposal" : "context")}
+      >
+        <dl className="compact-dl">
+          <div>
+            <dt>Session</dt>
+            <dd>{taskId ?? "New conversation"}</dd>
+          </div>
+          <div>
+            <dt>Profile</dt>
+            <dd>{profile.name}</dd>
+          </div>
+          <div>
+            <dt>Chat window</dt>
+            <dd>Recent 24 messages</dd>
+          </div>
+          <div>
+            <dt>Terminal</dt>
+            <dd>{attachedContext ? "selection attached" : "none"}</dd>
+          </div>
+        </dl>
+      </InspectorSection>
+
+      <InspectorSection
+        active={activeTool === "token"}
+        icon={<Gauge size={15} />}
+        title="Token"
+        status={tokenEstimate.label}
+        onToggle={() => onSelectTool(activeTool === "token" ? "proposal" : "token")}
+      >
+        <dl className="compact-dl">
+          <div>
+            <dt>Approx</dt>
+            <dd>{tokenEstimate.approximateTokens}</dd>
+          </div>
+          <div>
+            <dt>Messages</dt>
+            <dd>{tokenEstimate.chatMessages}</dd>
+          </div>
+          <div>
+            <dt>Model</dt>
+            <dd>{settings?.codexModel ?? "CLI default"}</dd>
+          </div>
+          <div>
+            <dt>Effort</dt>
+            <dd>{settings?.codexReasoningEffort ?? "medium"}</dd>
+          </div>
+        </dl>
+      </InspectorSection>
     </aside>
   );
 }
 
-function ToolPanel({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+function InspectorSection({
+  active,
+  children,
+  icon,
+  onToggle,
+  status,
+  title,
+}: {
+  active: boolean;
+  children: ReactNode;
+  icon: ReactNode;
+  onToggle: () => void;
+  status: string;
+  title: string;
+}) {
   return (
-    <section className="tool-panel">
-      <h3>
-        {icon}
-        {title}
-      </h3>
-      {children}
+    <section className={active ? "inspector-section open" : "inspector-section"}>
+      <button className="inspector-section-header" onClick={onToggle}>
+        <span className="inspector-section-title">
+          {active ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {icon}
+          <strong>{title}</strong>
+        </span>
+        <span className="inspector-section-status">{status}</span>
+      </button>
+      {active ? <div className="inspector-section-body">{children}</div> : null}
     </section>
   );
 }
