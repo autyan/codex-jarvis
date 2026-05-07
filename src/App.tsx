@@ -12,6 +12,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { detectCodexCli } from "./api/codex";
+import { HistoryView } from "./components/history/HistoryView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { profiles } from "./data/profiles";
@@ -248,19 +249,7 @@ $ `}</pre>
   }
 
   if (activeTab === "history") {
-    return (
-      <section className="workspace-panel">
-        <div className="section-heading">
-          <h2>Session History</h2>
-          <span>Virtualized event stream placeholder</span>
-        </div>
-        <div className="event-list">
-          <div>Setup project structure</div>
-          <div>Drafted system design</div>
-          <div>Drafted wireframe</div>
-        </div>
-      </section>
-    );
+    return <HistoryView />;
   }
 
   return <TaskRunner profile={profile} />;

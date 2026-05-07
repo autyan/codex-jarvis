@@ -62,6 +62,40 @@ struct TaskEvent {
     exit_code: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedTaskEvent {
+    sequence: u64,
+    task_id: String,
+    event: String,
+    source: String,
+    text_preview: Option<String>,
+    payload_path: Option<String>,
+    status: Option<String>,
+    exit_code: Option<i32>,
+    created_at: u128,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskEventPage {
+    task_id: String,
+    events: Vec<PersistedTaskEvent>,
+    offset: usize,
+    limit: usize,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskSummary {
+    task_id: String,
+    updated_at: u128,
+    event_count: usize,
+    latest_status: Option<String>,
+    latest_preview: Option<String>,
+}
+
 #[tauri::command]
 fn detect_codex_cli() -> CodexCliInfo {
     match Command::new("codex").arg("--version").output() {
@@ -233,6 +267,61 @@ fn cancel_task(
     } else {
         Err("Task is not running".to_string())
     }
+}
+
+#[tauri::command]
+fn list_task_events(task_id: String, offset: usize, limit: usize) -> Result<TaskEventPage, String> {
+    let events = read_persisted_events(&task_id)?;
+    let total = events.len();
+    let page = events.into_iter().skip(offset).take(limit).collect();
+
+    Ok(TaskEventPage {
+        task_id,
+        events: page,
+        offset,
+        limit,
+        total,
+    })
+}
+
+#[tauri::command]
+fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
+    let Some(tasks_dir) = tasks_data_dir() else {
+        return Ok(Vec::new());
+    };
+    if !tasks_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut summaries = Vec::new();
+    let entries = fs::read_dir(tasks_dir).map_err(|error| error.to_string())?;
+
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let task_id = entry.file_name().to_string_lossy().to_string();
+        let events = read_persisted_events(&task_id).unwrap_or_default();
+        let latest = events.last();
+        let updated_at = latest.map(|event| event.created_at).unwrap_or_default();
+
+        summaries.push(TaskSummary {
+            task_id,
+            updated_at,
+            event_count: events.len(),
+            latest_status: latest.and_then(|event| event.status.clone()),
+            latest_preview: latest.and_then(|event| event.text_preview.clone()),
+        });
+    }
+
+    summaries.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    summaries.truncate(limit);
+
+    Ok(summaries)
 }
 
 fn profiles() -> Vec<TaskProfile> {
@@ -466,12 +555,29 @@ fn persist_task_event(event: &TaskEvent) {
         return;
     }
 
-    let event_line = format!(
-        "{} status={} exit_code={:?}\n",
-        event.event,
-        event.status.as_deref().unwrap_or("unknown"),
-        event.exit_code
-    );
+    let sequence = next_event_sequence(&task_dir);
+    let created_at = now_millis();
+    let source = event_source(event.event);
+    let payload_path = persist_payload(&task_dir, event, sequence);
+    let text_preview = event.text.as_ref().map(|text| preview_text(text, 240));
+    let persisted = PersistedTaskEvent {
+        sequence,
+        task_id: event.task_id.clone(),
+        event: event.event.to_string(),
+        source: source.to_string(),
+        text_preview,
+        payload_path,
+        status: event.status.clone(),
+        exit_code: event.exit_code,
+        created_at,
+    };
+
+    if let Ok(line) = serde_json::to_string(&persisted) {
+        append_file(task_dir.join("events.jsonl"), &line);
+        append_file(task_dir.join("events.jsonl"), "\n");
+    }
+
+    let event_line = format!("{} status={} exit_code={:?}\n", event.event, event.status.as_deref().unwrap_or("unknown"), event.exit_code);
     append_file(task_dir.join("events.log"), &event_line);
 
     if let Some(text) = &event.text {
@@ -497,14 +603,74 @@ fn persist_task_event(event: &TaskEvent) {
 }
 
 fn task_data_dir(task_id: &str) -> Option<PathBuf> {
+    Some(tasks_data_dir()?.join(task_id))
+}
+
+fn tasks_data_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".local/share/codex-jarvis/tasks").join(task_id))
+    Some(PathBuf::from(home).join(".local/share/codex-jarvis/tasks"))
 }
 
 fn append_file(path: PathBuf, text: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(text.as_bytes());
     }
+}
+
+fn next_event_sequence(task_dir: &std::path::Path) -> u64 {
+    fs::read_to_string(task_dir.join("events.jsonl"))
+        .map(|content| content.lines().count() as u64)
+        .unwrap_or_default()
+}
+
+fn persist_payload(task_dir: &std::path::Path, event: &TaskEvent, sequence: u64) -> Option<String> {
+    let text = event.text.as_ref()?;
+    let payload_dir = task_dir.join("payloads");
+    fs::create_dir_all(&payload_dir).ok()?;
+    let file_name = format!("{sequence:08}_{}.txt", event.event);
+    let path = payload_dir.join(file_name);
+    fs::write(&path, text).ok()?;
+    Some(path.to_string_lossy().to_string())
+}
+
+fn read_persisted_events(task_id: &str) -> Result<Vec<PersistedTaskEvent>, String> {
+    let Some(task_dir) = task_data_dir(task_id) else {
+        return Ok(Vec::new());
+    };
+    let events_path = task_dir.join("events.jsonl");
+    if !events_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(events_path).map_err(|error| error.to_string())?;
+    Ok(content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<PersistedTaskEvent>(line).ok())
+        .collect())
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn event_source(event: &str) -> &'static str {
+    match event {
+        "context_collected" => "context",
+        "stdout" => "stdout",
+        "stderr" | "task_failed" => "stderr",
+        _ => "system",
+    }
+}
+
+fn preview_text(text: &str, limit: usize) -> String {
+    let mut preview = text.chars().take(limit).collect::<String>();
+    if text.chars().count() > limit {
+        preview.push_str("...");
+    }
+    preview
 }
 
 pub fn run() {
@@ -514,7 +680,9 @@ pub fn run() {
             detect_codex_cli,
             list_profiles,
             start_diagnose_task,
-            cancel_task
+            cancel_task,
+            list_task_events,
+            list_recent_tasks
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Codex Jarvis");

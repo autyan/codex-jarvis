@@ -100,6 +100,8 @@ pnpm exec tauri dev
 
 ## Stage 4 — Long-Session Event Store
 
+Status: complete
+
 Goal:
 
 - prevent long-running sessions from making the UI slow.

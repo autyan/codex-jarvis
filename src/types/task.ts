@@ -32,3 +32,31 @@ export type TaskLogLine = {
   source: "system" | "context" | "stdout" | "stderr";
   text: string;
 };
+
+export type PersistedTaskEvent = {
+  sequence: number;
+  taskId: string;
+  event: TaskEvent["event"];
+  source: TaskLogLine["source"];
+  textPreview?: string;
+  payloadPath?: string;
+  status?: TaskStatus;
+  exitCode?: number;
+  createdAt: number;
+};
+
+export type TaskEventPage = {
+  taskId: string;
+  events: PersistedTaskEvent[];
+  offset: number;
+  limit: number;
+  total: number;
+};
+
+export type TaskSummary = {
+  taskId: string;
+  updatedAt: number;
+  eventCount: number;
+  latestStatus?: TaskStatus;
+  latestPreview?: string;
+};

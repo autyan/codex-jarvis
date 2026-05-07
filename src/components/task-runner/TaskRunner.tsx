@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cancelTask, startDiagnoseTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
 import type { TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
   profile: TaskProfile;
@@ -32,7 +33,7 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
 
       if (payload.text) {
         setLogs((currentLogs) => [
-          ...currentLogs.slice(-600),
+          ...currentLogs.slice(-5000),
           {
             id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
             source: logSource(payload.event),
@@ -143,18 +144,7 @@ export function TaskRunner({ profile }: TaskRunnerProps) {
         </button>
       </div>
 
-      <div className="output-box task-output" aria-live="polite">
-        {logs.length ? (
-          logs.map((line) => (
-            <div key={line.id} className={`log-line source-${line.source}`}>
-              <span>{line.source}</span>
-              <pre>{line.text}</pre>
-            </div>
-          ))
-        ) : (
-          <p>Run a diagnose task to collect context and stream Codex output.</p>
-        )}
-      </div>
+      <VirtualLog logs={logs} />
     </section>
   );
 }

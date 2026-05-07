@@ -328,13 +328,31 @@ textarea {
 .task-output {
   display: grid;
   gap: 10px;
-  max-height: 420px;
+  height: 420px;
   overflow: auto;
 }
 
 .log-line {
   display: grid;
   gap: 4px;
+}
+
+.virtual-log {
+  display: block;
+  position: relative;
+}
+
+.virtual-log-inner {
+  position: relative;
+  width: 100%;
+}
+
+.virtual-log .log-line,
+.history-event {
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .log-line span {
@@ -365,6 +383,74 @@ textarea {
   color: #50605b;
   font-size: 13px;
   padding: 5px 10px;
+}
+
+.history-layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.history-task-list {
+  border-right: 1px solid #ded8ce;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  padding-right: 12px;
+}
+
+.history-task {
+  background: #f3eee5;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+  color: #26302d;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.history-task.active {
+  background: #e9f2ef;
+  border-color: #b9d2c9;
+}
+
+.history-task span,
+.history-task small {
+  color: #68736e;
+}
+
+.history-events {
+  background: #141a18;
+  border-radius: 8px;
+  height: calc(100vh - 170px);
+  overflow: auto;
+  padding: 12px;
+  position: relative;
+}
+
+.history-event {
+  background: #1e2724;
+  border: 1px solid #34423d;
+  border-radius: 8px;
+  color: #dce7e2;
+  padding: 10px;
+}
+
+.history-event div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.history-event span {
+  color: #8fbbae;
+}
+
+.history-event p {
+  color: #c8d4cf;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
 }
 
 .status-running,
