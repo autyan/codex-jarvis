@@ -103,17 +103,17 @@ export function TaskRunner({
       const nextLogs = eventsToLogs(events);
       const nextStatus = [...events].reverse().find((event) => event.status)?.status ?? "idle";
       const cached = sessionCacheRef.current.get(nextTaskId);
-      const mergedLogs = options?.background && cached ? mergeLogWindows(cached.logs, nextLogs) : nextLogs;
+      const mergedLogs = options?.background && cached ? mergeLogWindows(nextLogs, cached.logs) : nextLogs;
       rememberSessionViewCache(sessionCacheRef.current, nextTaskId, {
         contextSnapshots: cached?.contextSnapshots ?? [],
-        eventOffset: Math.min(offset, cached?.eventOffset ?? offset),
+        eventOffset: offset,
         logs: mergedLogs,
         status: nextStatus,
       });
 
       activeTaskIdRef.current = nextTaskId;
       setTaskId(nextTaskId);
-      setEventOffset(Math.min(offset, cached?.eventOffset ?? offset));
+      setEventOffset(offset);
       setStatus(nextStatus);
       setLogs(mergedLogs);
     } finally {
