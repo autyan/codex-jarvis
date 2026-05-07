@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   CheckCircle2,
   FileDiff,
   History,
@@ -8,11 +9,16 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { detectCodexCli } from "./api/codex";
+import { SetupWizard } from "./components/setup/SetupWizard";
 import { profiles } from "./data/profiles";
+import type { CodexSetupStatus } from "./types/codex";
 import type { WorkspaceTab } from "./types/workspace";
 
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{ size?: number }> }> = [
+  { id: "setup", label: "Setup", icon: Settings },
   { id: "task", label: "Task", icon: Sparkles },
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "review", label: "Review", icon: FileDiff },
@@ -21,11 +27,22 @@ const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{
 
 export function App() {
   const [activeProfileId, setActiveProfileId] = useState("shell");
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("task");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
+  const codexQuery = useQuery({
+    queryKey: ["codex-cli"],
+    queryFn: detectCodexCli,
+  });
   const activeProfile = useMemo(
     () => profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0],
     [activeProfileId],
   );
+  const setupStatus: CodexSetupStatus = codexQuery.isFetching
+    ? "checking"
+    : codexQuery.data?.found
+      ? "ready"
+      : codexQuery.data
+        ? "missing"
+        : "idle";
 
   return (
     <div className="app-shell">
@@ -35,11 +52,11 @@ export function App() {
           <h1>System Console</h1>
         </div>
         <div className="top-status">
-          <span>
-            <CheckCircle2 size={16} />
-            Codex pending setup
+          <span className={setupStatus === "ready" ? "status-ready" : "status-warning"}>
+            {setupStatus === "ready" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            {setupStatus === "ready" ? "Codex ready" : "Codex setup needed"}
           </span>
-          <button className="icon-button" aria-label="Settings">
+          <button className="icon-button" aria-label="Settings" onClick={() => setActiveTab("setup")}>
             <Settings size={18} />
           </button>
         </div>
@@ -88,7 +105,13 @@ export function App() {
             );
           })}
         </div>
-        <Workspace activeTab={activeTab} profileName={activeProfile.name} />
+        <Workspace
+          activeTab={activeTab}
+          profileName={activeProfile.name}
+          setupStatus={setupStatus}
+          codexInfo={codexQuery.data}
+          onDetectCodex={() => void codexQuery.refetch()}
+        />
       </main>
 
       <aside className="inspector">
@@ -114,6 +137,10 @@ export function App() {
           </dl>
         </section>
         <section className="info-card">
+          <h2>Codex CLI</h2>
+          <p>{setupStatus === "ready" ? codexQuery.data?.version : codexQuery.data?.error || "Setup pending"}</p>
+        </section>
+        <section className="info-card">
           <h2>Profile</h2>
           <p>{activeProfile.description}</p>
           <div className="path-list">
@@ -131,7 +158,23 @@ export function App() {
   );
 }
 
-function Workspace({ activeTab, profileName }: { activeTab: WorkspaceTab; profileName: string }) {
+function Workspace({
+  activeTab,
+  profileName,
+  setupStatus,
+  codexInfo,
+  onDetectCodex,
+}: {
+  activeTab: WorkspaceTab;
+  profileName: string;
+  setupStatus: CodexSetupStatus;
+  codexInfo?: Parameters<typeof SetupWizard>[0]["info"];
+  onDetectCodex: () => void;
+}) {
+  if (activeTab === "setup") {
+    return <SetupWizard info={codexInfo} status={setupStatus} onDetect={onDetectCodex} />;
+  }
+
   if (activeTab === "terminal") {
     return (
       <section className="workspace-panel terminal-panel">
@@ -199,4 +242,3 @@ $ `}</pre>
     </section>
   );
 }
-
