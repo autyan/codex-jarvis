@@ -1,35 +1,16 @@
-import {
-  AlertCircle,
-  CheckCircle2,
-  FileDiff,
-  History,
-  PanelRight,
-  Settings,
-  Sparkles,
-  Terminal,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
-import { HistoryView } from "./components/history/HistoryView";
+import { listRecentTasks } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
-import { listRecentTasks } from "./api/tasks";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
-import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
-import type { WorkspaceTab } from "./types/workspace";
-
-const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ComponentType<{ size?: number }> }> = [
-  { id: "setup", label: "Setup", icon: Settings },
-  { id: "task", label: "Task", icon: Sparkles },
-  { id: "terminal", label: "Terminal", icon: Terminal },
-  { id: "review", label: "Review", icon: FileDiff },
-  { id: "history", label: "History", icon: History },
-  { id: "settings", label: "Settings", icon: Settings },
-];
+import { formatTaskMode, type TaskProfile } from "./types/profile";
+import type { TaskSummary } from "./types/task";
 
 const TerminalView = lazy(() =>
   import("./components/terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
@@ -37,16 +18,21 @@ const TerminalView = lazy(() =>
 
 export function App() {
   const [activeProfileId, setActiveProfileId] = useState("shell");
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(true);
+  const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>([]);
   const codexQuery = useQuery({
     queryKey: ["codex-cli"],
     queryFn: detectCodexCli,
   });
   const recentTasksQuery = useQuery({
     queryKey: ["recent-tasks", "sidebar"],
-    queryFn: () => listRecentTasks(6),
+    queryFn: () => listRecentTasks(30),
     refetchInterval: 5000,
   });
   const activeProfile = useMemo(
@@ -60,232 +46,234 @@ export function App() {
       : codexQuery.data
         ? "missing"
         : "idle";
+  const codexReady = setupStatus === "ready";
+  const pinnedTasks = (recentTasksQuery.data ?? []).filter((task) => pinnedTaskIds.includes(task.taskId));
+  const recentTasks = (recentTasksQuery.data ?? []).filter((task) => !pinnedTaskIds.includes(task.taskId));
+
+  function togglePin(taskId: string) {
+    setPinnedTaskIds((current) =>
+      current.includes(taskId) ? current.filter((id) => id !== taskId) : [...current, taskId],
+    );
+  }
 
   return (
-    <div className="app-shell">
+    <div className={terminalOpen ? "app-shell terminal-open" : "app-shell"}>
       <header className="top-bar">
         <div>
           <p className="eyebrow">Codex Jarvis</p>
-          <h1>System Console</h1>
+          <h1>Task Workspace</h1>
         </div>
         <div className="top-status">
-          <span className={setupStatus === "ready" ? "status-ready" : "status-warning"}>
-            {setupStatus === "ready" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-            {setupStatus === "ready" ? "Codex ready" : "Codex setup needed"}
-          </span>
-          <button className="icon-button" aria-label="Settings" onClick={() => setActiveTab("settings")}>
+          <button className="status-pill" onClick={() => !codexReady && setSetupOpen(true)}>
+            {codexReady ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            {codexReady ? "Codex ready" : "Setup required"}
+          </button>
+          <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings size={18} />
           </button>
         </div>
       </header>
 
-      <aside className="sidebar">
-        <section>
-          <h2>Profiles</h2>
-          <nav className="nav-list">
-            {profiles.map((profile) => (
-              <button
-                key={profile.id}
-                className={profile.id === activeProfile.id ? "nav-item active" : "nav-item"}
-                onClick={() => setActiveProfileId(profile.id)}
-              >
-                <span>{profile.name}</span>
-                <small>{formatTaskMode(profile.defaultMode)}</small>
-              </button>
-            ))}
-          </nav>
-        </section>
-
-        <section>
+      <aside className="sidebar sessions-sidebar">
+        <div className="sidebar-heading">
           <h2>Sessions</h2>
-          <nav className="nav-list compact">
-            {(recentTasksQuery.data ?? []).map((task) => (
-              <button
-                key={task.taskId}
-                className={task.taskId === activeTaskId ? "nav-item active" : "nav-item"}
-                onClick={() => {
-                  setActiveTaskId(task.taskId);
-                  setActiveTab("history");
-                }}
-              >
-                <span>{task.taskId}</span>
-                <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
-              </button>
-            ))}
-            {!recentTasksQuery.data?.length ? <button className="nav-item muted">No sessions yet</button> : null}
-          </nav>
-        </section>
+          <button className="mini-button" onClick={() => setActiveTaskId(undefined)}>New</button>
+        </div>
+        <SessionGroup
+          title="Pinned"
+          tasks={pinnedTasks}
+          activeTaskId={activeTaskId}
+          pinnedTaskIds={pinnedTaskIds}
+          onSelect={setActiveTaskId}
+          onTogglePin={togglePin}
+          emptyLabel="No pinned sessions"
+        />
+        <SessionGroup
+          title="Recent"
+          tasks={recentTasks}
+          activeTaskId={activeTaskId}
+          pinnedTaskIds={pinnedTaskIds}
+          onSelect={setActiveTaskId}
+          onTogglePin={togglePin}
+          emptyLabel="No sessions yet"
+        />
       </aside>
 
       <main className="workspace">
-        <div className="tab-bar">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                className={tab.id === activeTab ? "tab active" : "tab"}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <Icon size={16} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-        <Workspace
-          activeTab={activeTab}
-          profile={activeProfile}
-          setupStatus={setupStatus}
-          codexInfo={codexQuery.data}
-          onDetectCodex={() => void codexQuery.refetch()}
-          activeTaskId={activeTaskId}
-          onTaskStarted={(taskId) => setActiveTaskId(taskId)}
-          onTaskSelected={(taskId) => setActiveTaskId(taskId)}
-          attachedTerminalOutput={attachedTerminalOutput}
-          onAttachTerminalOutput={(output) => setAttachedTerminalOutput(output)}
-          onClearAttachedTerminalOutput={() => setAttachedTerminalOutput(undefined)}
-        />
+        {codexReady ? (
+          <TaskRunner
+            profile={activeProfile}
+            selectedTaskId={activeTaskId}
+            onTaskStarted={(taskId) => setActiveTaskId(taskId)}
+            onOpenTerminal={() => setTerminalOpen(true)}
+            attachedContext={attachedTerminalOutput}
+            onClearAttachedContext={() => setAttachedTerminalOutput(undefined)}
+          />
+        ) : (
+          <section className="workspace-panel unavailable-panel">
+            <AlertCircle size={22} />
+            <h2>Codex Jarvis is not ready</h2>
+            <p>Configure a usable Codex CLI path before starting tasks.</p>
+            <button className="primary" onClick={() => setSetupOpen(true)}>Open setup</button>
+          </section>
+        )}
       </main>
 
-      <aside className="inspector">
-        <div className="panel-title">
-          <PanelRight size={16} />
-          Inspector
-        </div>
-        <section className="info-card">
-          <h2>Safety</h2>
-          <dl>
-            <div>
-              <dt>Mode</dt>
-              <dd>{formatTaskMode(activeProfile.defaultMode)}</dd>
-            </div>
-            <div>
-              <dt>Snapshots</dt>
-              <dd>{activeProfile.snapshotRequired ? "On" : "Off"}</dd>
-            </div>
-            <div>
-              <dt>Sudo</dt>
-              <dd>Blocked</dd>
-            </div>
-          </dl>
-        </section>
-        <section className="info-card">
-          <h2>Codex CLI</h2>
-          <p>{setupStatus === "ready" ? codexQuery.data?.version : codexQuery.data?.error || "Setup pending"}</p>
-        </section>
-        <section className="info-card">
-          <h2>Profile</h2>
-          <p>{activeProfile.description}</p>
-          <dl className="compact-dl">
-            <div>
-              <dt>cwd</dt>
-              <dd>{activeProfile.cwd}</dd>
-            </div>
-            <div>
-              <dt>Writes</dt>
-              <dd>{activeProfile.writeEnabled ? "Enabled" : "Disabled"}</dd>
-            </div>
-          </dl>
-        </section>
-        <PolicySummary profile={activeProfile} />
-        <section className="info-card">
-          <h2>Context Commands</h2>
-          <div className="path-list">
-            {activeProfile.readonlyCommands.map((command) => (
-              <code key={command}>{command}</code>
-            ))}
-          </div>
-        </section>
-        <section className="info-card">
-          <h2>Changes</h2>
-          <p>No file changes detected yet.</p>
-        </section>
+      <aside className={terminalOpen ? "terminal-dock open" : "terminal-dock"}>
+        {terminalOpen ? (
+          <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
+            <TerminalView profile={activeProfile} onAttachOutput={setAttachedTerminalOutput} />
+          </Suspense>
+        ) : (
+          <button className="terminal-rail" onClick={() => setTerminalOpen(true)} aria-label="Open terminal">
+            <Terminal size={18} />
+          </button>
+        )}
       </aside>
+
+      <footer className="bottom-activity">
+        <button onClick={() => setProfilesOpen(true)}>
+          <UserRound size={16} />
+          Profile: {activeProfile.name}
+        </button>
+        <button onClick={() => setReviewOpen(true)}>
+          <FileDiff size={16} />
+          Review
+        </button>
+        <button className={terminalOpen ? "active" : ""} onClick={() => setTerminalOpen((open) => !open)}>
+          <Terminal size={16} />
+          Terminal
+        </button>
+        <button onClick={() => setSettingsOpen(true)}>
+          <Settings size={16} />
+          Settings
+        </button>
+      </footer>
+
+      {!codexReady && setupOpen ? (
+        <Modal title="Setup Codex Jarvis" onClose={() => setSetupOpen(false)}>
+          <SetupWizard info={codexQuery.data} status={setupStatus} onDetect={() => void codexQuery.refetch()} />
+        </Modal>
+      ) : null}
+
+      {settingsOpen ? (
+        <Modal title="Settings" onClose={() => setSettingsOpen(false)}>
+          <SettingsView codexInfo={codexQuery.data} profile={activeProfile} />
+        </Modal>
+      ) : null}
+
+      {profilesOpen ? (
+        <Modal title="Profiles" onClose={() => setProfilesOpen(false)}>
+          <ProfilePicker activeProfile={activeProfile} onSelect={setActiveProfileId} />
+        </Modal>
+      ) : null}
+
+      {reviewOpen ? (
+        <Modal title="Review" onClose={() => setReviewOpen(false)}>
+          <ReviewView taskId={activeTaskId} />
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-function PolicySummary({ profile }: { profile: TaskProfile }) {
-  const summary = profilePathSummary(profile);
-  const groups: PathPolicyGroup[] = [
-    { label: `Readable (${summary.readable})`, paths: profile.readPaths },
-    { label: `Writable (${summary.writable})`, paths: profile.writePaths },
-    { label: `Denied (${summary.denied})`, paths: profile.denyPaths },
-  ];
-
+function SessionGroup({
+  title,
+  tasks,
+  activeTaskId,
+  pinnedTaskIds,
+  onSelect,
+  onTogglePin,
+  emptyLabel,
+}: {
+  title: string;
+  tasks: TaskSummary[];
+  activeTaskId?: string;
+  pinnedTaskIds: string[];
+  onSelect: (taskId: string) => void;
+  onTogglePin: (taskId: string) => void;
+  emptyLabel: string;
+}) {
   return (
-    <section className="info-card">
-      <h2>Path Policy</h2>
-      <div className="policy-groups">
-        {groups.map((group) => (
-          <details key={group.label}>
-            <summary>{group.label}</summary>
-            <div className="path-list">
-              {group.paths.length ? group.paths.map((path) => <code key={path}>{path}</code>) : <span>None</span>}
-            </div>
-          </details>
+    <section>
+      <h2>{title}</h2>
+      <nav className="nav-list compact">
+        {tasks.map((task) => (
+          <button
+            key={task.taskId}
+            className={task.taskId === activeTaskId ? "nav-item active session-item" : "nav-item session-item"}
+            onClick={() => onSelect(task.taskId)}
+          >
+            <span>{task.taskId}</span>
+            <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
+            <span
+              className="pin-control"
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTogglePin(task.taskId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onTogglePin(task.taskId);
+                }
+              }}
+            >
+              {pinnedTaskIds.includes(task.taskId) ? <PinOff size={14} /> : <Pin size={14} />}
+            </span>
+          </button>
         ))}
-      </div>
+        {!tasks.length ? <button className="nav-item muted">{emptyLabel}</button> : null}
+      </nav>
     </section>
   );
 }
 
-function Workspace({
-  activeTab,
-  profile,
-  setupStatus,
-  codexInfo,
-  onDetectCodex,
-  activeTaskId,
-  onTaskStarted,
-  onTaskSelected,
-  attachedTerminalOutput,
-  onAttachTerminalOutput,
-  onClearAttachedTerminalOutput,
+function ProfilePicker({
+  activeProfile,
+  onSelect,
 }: {
-  activeTab: WorkspaceTab;
-  profile: TaskProfile;
-  setupStatus: CodexSetupStatus;
-  codexInfo?: Parameters<typeof SetupWizard>[0]["info"];
-  onDetectCodex: () => void;
-  activeTaskId?: string;
-  onTaskStarted: (taskId: string) => void;
-  onTaskSelected: (taskId: string) => void;
-  attachedTerminalOutput?: string;
-  onAttachTerminalOutput: (output: string) => void;
-  onClearAttachedTerminalOutput: () => void;
+  activeProfile: TaskProfile;
+  onSelect: (profileId: string) => void;
 }) {
-  if (activeTab === "setup") {
-    return <SetupWizard info={codexInfo} status={setupStatus} onDetect={onDetectCodex} />;
-  }
-
-  if (activeTab === "terminal") {
-    return (
-      <Suspense fallback={<section className="workspace-panel">Loading terminal...</section>}>
-        <TerminalView profile={profile} onAttachOutput={onAttachTerminalOutput} />
-      </Suspense>
-    );
-  }
-
-  if (activeTab === "review") {
-    return <ReviewView taskId={activeTaskId} />;
-  }
-
-  if (activeTab === "history") {
-    return <HistoryView selectedTaskId={activeTaskId} onSelectTask={onTaskSelected} />;
-  }
-
-  if (activeTab === "settings") {
-    return <SettingsView codexInfo={codexInfo} profile={profile} />;
-  }
-
   return (
-    <TaskRunner
-      profile={profile}
-      onTaskStarted={onTaskStarted}
-      attachedContext={attachedTerminalOutput}
-      onClearAttachedContext={onClearAttachedTerminalOutput}
-    />
+    <div className="profile-picker">
+      {profiles.map((profile) => (
+        <button
+          key={profile.id}
+          className={profile.id === activeProfile.id ? "profile-option active" : "profile-option"}
+          onClick={() => onSelect(profile.id)}
+        >
+          <strong>{profile.name}</strong>
+          <span>{profile.description}</span>
+          <small>{formatTaskMode(profile.defaultMode)} · {profile.writeEnabled ? "writes enabled" : "read only"}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="modal-panel">
+        <header className="modal-header">
+          <h2>{title}</h2>
+          <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
+        </header>
+        {children}
+      </section>
+    </div>
   );
 }

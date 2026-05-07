@@ -1,27 +1,47 @@
 import { listen } from "@tauri-apps/api/event";
-import { Ban, Play, RotateCcw } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Ban, Play, RotateCcw, Terminal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cancelTask, startDiagnoseTask, startPatchTask } from "../../api/tasks";
+import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
 import type { TaskEvent, TaskLogLine, TaskMode, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
 
 type TaskRunnerProps = {
   profile: TaskProfile;
+  selectedTaskId?: string;
   onTaskStarted: (taskId: string) => void;
+  onOpenTerminal: () => void;
   attachedContext?: string;
   onClearAttachedContext: () => void;
 };
 
 const defaultPrompt = "Check whether my shell PATH is configured cleanly.";
 
-export function TaskRunner({ profile, onTaskStarted, attachedContext, onClearAttachedContext }: TaskRunnerProps) {
+export function TaskRunner({
+  profile,
+  selectedTaskId,
+  onTaskStarted,
+  onOpenTerminal,
+  attachedContext,
+  onClearAttachedContext,
+}: TaskRunnerProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [mode, setMode] = useState<TaskMode>("diagnose");
   const [taskId, setTaskId] = useState<string>();
   const [status, setStatus] = useState<TaskStatus>("idle");
   const [logs, setLogs] = useState<TaskLogLine[]>([]);
   const activeTaskIdRef = useRef<string | undefined>(undefined);
+  const selectedEventsQuery = useQuery({
+    queryKey: ["task-events", selectedTaskId, "workspace"],
+    queryFn: async () => {
+      if (!selectedTaskId) return undefined;
+      const windowSize = 500;
+      const firstPage = await listTaskEvents(selectedTaskId, 0, 1);
+      return listTaskEvents(selectedTaskId, Math.max(0, firstPage.total - windowSize), windowSize);
+    },
+    enabled: Boolean(selectedTaskId) && selectedTaskId !== activeTaskIdRef.current,
+  });
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
@@ -55,6 +75,22 @@ export function TaskRunner({ profile, onTaskStarted, attachedContext, onClearAtt
       removeListener?.();
     };
   }, []);
+
+  useEffect(() => {
+    const events = selectedEventsQuery.data?.events;
+    if (!selectedTaskId || !events || selectedTaskId === activeTaskIdRef.current) return;
+
+    activeTaskIdRef.current = selectedTaskId;
+    setTaskId(selectedTaskId);
+    setStatus([...events].reverse().find((event) => event.status)?.status ?? "idle");
+    setLogs(
+      events.map((event) => ({
+        id: `${event.taskId}-${event.sequence}`,
+        source: event.source,
+        text: event.textPreview ?? event.payloadPath ?? event.event,
+      })),
+    );
+  }, [selectedEventsQuery.data?.events, selectedTaskId]);
 
   const statusLabel = useMemo(() => {
     if (status === "context_collected") return "Context collected";
@@ -128,8 +164,8 @@ export function TaskRunner({ profile, onTaskStarted, attachedContext, onClearAtt
     <section className="workspace-panel task-runner">
       <div className="section-heading">
         <div>
-          <h2>Task Runner</h2>
-          <span>{profile.name} profile</span>
+          <h2>{taskId ? "Current Task" : "New Task"}</h2>
+          <span>{taskId ?? `${profile.name} profile`}</span>
         </div>
         <div className={`task-status status-${status}`}>{statusLabel}</div>
       </div>
@@ -161,6 +197,10 @@ export function TaskRunner({ profile, onTaskStarted, attachedContext, onClearAtt
       ) : null}
 
       <div className="button-row">
+        <button className="secondary-action" onClick={onOpenTerminal}>
+          <Terminal size={16} />
+          Terminal
+        </button>
         <button className="secondary-action" onClick={resetTask} disabled={isActive}>
           <RotateCcw size={16} />
           Reset

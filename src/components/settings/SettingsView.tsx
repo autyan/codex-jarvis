@@ -1,4 +1,4 @@
-import { MonitorCog, ShieldCheck, Terminal, Wrench } from "lucide-react";
+import { Database, History, MonitorCog, ShieldCheck, Terminal, Wrench } from "lucide-react";
 import type { CodexCliInfo } from "../../types/codex";
 import type { TaskProfile } from "../../types/profile";
 
@@ -9,11 +9,11 @@ type SettingsViewProps = {
 
 export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
   return (
-    <section className="workspace-panel settings-view">
+    <section className="settings-view">
       <div className="section-heading">
         <div>
-          <h2>Settings</h2>
-          <span>Local workstation configuration</span>
+          <h2>Configuration Map</h2>
+          <span>Read-only preview of the settings surface</span>
         </div>
       </div>
 
@@ -33,6 +33,10 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
               <dd>{codexInfo?.path ?? "codex"}</dd>
             </div>
             <div>
+              <dt>Path policy</dt>
+              <dd>Explicit path preferred, PATH fallback</dd>
+            </div>
+            <div>
               <dt>Version</dt>
               <dd>{codexInfo?.version ?? "Unknown"}</dd>
             </div>
@@ -50,8 +54,16 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
               <dd>$SHELL</dd>
             </div>
             <div>
+              <dt>Lifecycle</dt>
+              <dd>Auto-start on panel open</dd>
+            </div>
+            <div>
               <dt>Scrollback</dt>
               <dd>5000 lines</dd>
+            </div>
+            <div>
+              <dt>Context attach</dt>
+              <dd>Selection to current task</dd>
             </div>
             <div>
               <dt>Default cwd</dt>
@@ -78,6 +90,10 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
               <dt>Rollback</dt>
               <dd>Available for patch tasks</dd>
             </div>
+            <div>
+              <dt>Write policy</dt>
+              <dd>{profile.writeEnabled ? "Profile-scoped writes" : "Read-only profile"}</dd>
+            </div>
           </dl>
         </section>
 
@@ -94,6 +110,56 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
             <div>
               <dt>Profiles</dt>
               <dd>Built in</dd>
+            </div>
+            <div>
+              <dt>Changed files</dt>
+              <dd>Snapshot diff per patch task</dd>
+            </div>
+            <div>
+              <dt>Rollback logs</dt>
+              <dd>Stored with task metadata</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="settings-card">
+          <h3>
+            <History size={16} />
+            Task Window
+          </h3>
+          <dl>
+            <div>
+              <dt>Default load</dt>
+              <dd>Recent task events only</dd>
+            </div>
+            <div>
+              <dt>Scrolling</dt>
+              <dd>Virtualized long transcript</dd>
+            </div>
+            <div>
+              <dt>Dedicated History page</dt>
+              <dd>Removed from primary navigation</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="settings-card">
+          <h3>
+            <Database size={16} />
+            Interface
+          </h3>
+          <dl>
+            <div>
+              <dt>Sessions rail</dt>
+              <dd>Pinned and recent sessions</dd>
+            </div>
+            <div>
+              <dt>Activity bar</dt>
+              <dd>Profiles, Review, Terminal, Settings</dd>
+            </div>
+            <div>
+              <dt>Settings editing</dt>
+              <dd>Disabled in this preview</dd>
             </div>
           </dl>
         </section>

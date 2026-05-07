@@ -24,6 +24,8 @@ export function TerminalView({ profile, onAttachOutput }: TerminalViewProps) {
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    void openTerminal();
+
     return () => {
       if (terminalIdRef.current) {
         void closeTerminal(terminalIdRef.current);
@@ -122,7 +124,7 @@ export function TerminalView({ profile, onAttachOutput }: TerminalViewProps) {
         <div className="button-row">
           <button className="secondary-action" onClick={openTerminal} disabled={status === "running" || status === "starting"}>
             <Power size={16} />
-            Open
+            Start
           </button>
           <button className="secondary-action" onClick={resetTerminal}>
             <RotateCcw size={16} />
