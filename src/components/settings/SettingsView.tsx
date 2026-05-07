@@ -45,7 +45,7 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
           </dl>
           <div className="settings-actions">
             <button
-              className="secondary-action"
+              className="profile-edit-button"
               onClick={() => {
                 setProfileDraft(profileJson);
                 setProfileEditorOpen((open) => !open);

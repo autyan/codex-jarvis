@@ -967,6 +967,41 @@ textarea {
   margin-top: 8px;
 }
 
+.settings-actions .secondary-action {
+  background: #2d2d2d;
+  border: 1px solid #4b4b4b;
+  border-radius: 3px;
+  color: #d4d4d4;
+  min-height: 26px;
+  padding: 4px 9px;
+}
+
+.settings-actions .secondary-action:hover:not(:disabled) {
+  background: #37373d;
+  border-color: #5a5a66;
+  color: #ffffff;
+}
+
+.settings-actions .secondary-action:disabled {
+  background: #252526;
+  color: #6f6f6f;
+  opacity: 1;
+}
+
+.profile-edit-button {
+  background: #0e639c;
+  border: 1px solid #1177bb;
+  border-radius: 3px;
+  color: #ffffff;
+  font: inherit;
+  min-height: 28px;
+  padding: 5px 11px;
+}
+
+.profile-edit-button:hover {
+  background: #1177bb;
+}
+
 .profile-editor {
   display: grid;
   gap: 8px;
