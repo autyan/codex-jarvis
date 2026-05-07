@@ -45,7 +45,7 @@ export type TaskEvent = {
 
 export type TaskLogLine = {
   id: string;
-  source: "system" | "context" | "stdout" | "stderr";
+  source: "user" | "assistant" | "system" | "context" | "stdout" | "stderr";
   text: string;
 };
 

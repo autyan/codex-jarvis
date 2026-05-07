@@ -109,8 +109,8 @@ export function TaskRunner({
       ...currentLogs,
       {
         id: `user-${Date.now()}`,
-        source: "system",
-        text: `You: ${prompt}`,
+        source: "user",
+        text: prompt,
       },
       {
         id: `local-start-${Date.now()}`,
@@ -236,7 +236,8 @@ function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinu
   if (!isContinuation || !logs.length) return message;
 
   const transcript = logs
-    .slice(-80)
+    .filter((log) => log.source === "user" || log.source === "assistant" || log.source === "stdout")
+    .slice(-40)
     .map((log) => `[${log.source}] ${log.text}`)
     .join("\n");
 
@@ -245,7 +246,7 @@ function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinu
 
 function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
   if (event === "context_collected") return "context";
-  if (event === "stdout") return "stdout";
+  if (event === "stdout") return "assistant";
   if (event === "stderr" || event === "task_failed") return "stderr";
   return "system";
 }

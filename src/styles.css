@@ -656,6 +656,70 @@ textarea {
   overflow: auto;
 }
 
+.conversation-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-output {
+  position: relative;
+}
+
+.chat-message {
+  background: #1f1f1f;
+  border: 1px solid #343434;
+  border-radius: 4px;
+  display: grid;
+  gap: 5px;
+  left: 0;
+  padding: 9px 10px;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.chat-message.role-user {
+  background: #252526;
+}
+
+.chat-message.role-assistant {
+  background: #181818;
+  border-color: #2f3f46;
+}
+
+.chat-message span {
+  color: #9cdcfe;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-message pre {
+  font-family: inherit;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.execution-details {
+  background: #181818;
+  border: 1px solid #343434;
+  border-radius: 3px;
+  padding: 7px 8px;
+}
+
+.execution-details summary {
+  color: #969696;
+  font-weight: 500;
+}
+
+.execution-log {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-top: 8px;
+}
+
 .log-line {
   display: grid;
   gap: 2px;
@@ -671,7 +735,6 @@ textarea {
   width: 100%;
 }
 
-.virtual-log .log-line,
 .history-event {
   left: 0;
   position: absolute;
