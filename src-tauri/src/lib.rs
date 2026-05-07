@@ -167,7 +167,6 @@ struct RollbackResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartTerminalRequest {
-    profile_id: Option<String>,
     cwd: Option<String>,
     shell_path: Option<String>,
     cols: Option<u16>,
@@ -749,13 +748,6 @@ fn start_terminal(
         .unwrap_or_else(|| "/bin/sh".to_string());
     let cwd = request
         .cwd
-        .or_else(|| {
-            request
-                .profile_id
-                .as_deref()
-                .and_then(profile_by_id)
-                .map(|profile| expand_home(profile.cwd))
-        })
         .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
     let cols = request.cols.unwrap_or(96);
     let rows = request.rows.unwrap_or(28);

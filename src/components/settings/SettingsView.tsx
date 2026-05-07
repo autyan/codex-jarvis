@@ -121,7 +121,7 @@ export function SettingsView({ codexInfo, profile }: SettingsViewProps) {
             </div>
             <div>
               <dt>Default cwd</dt>
-              <dd>{profile.cwd}</dd>
+              <dd>$HOME</dd>
             </div>
           </dl>
         </section>
