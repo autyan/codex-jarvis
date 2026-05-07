@@ -4,13 +4,18 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { listRecentTasks, listTaskEvents } from "../../api/tasks";
 
-export function HistoryView() {
-  const [selectedTaskId, setSelectedTaskId] = useState<string>();
+type HistoryViewProps = {
+  selectedTaskId?: string;
+  onSelectTask: (taskId: string) => void;
+};
+
+export function HistoryView({ selectedTaskId, onSelectTask }: HistoryViewProps) {
+  const [localSelectedTaskId, setLocalSelectedTaskId] = useState<string>();
   const tasksQuery = useQuery({
     queryKey: ["recent-tasks"],
     queryFn: () => listRecentTasks(50),
   });
-  const selectedTask = selectedTaskId ?? tasksQuery.data?.[0]?.taskId;
+  const selectedTask = selectedTaskId ?? localSelectedTaskId ?? tasksQuery.data?.[0]?.taskId;
   const eventsQuery = useQuery({
     queryKey: ["task-events", selectedTask],
     queryFn: () => (selectedTask ? listTaskEvents(selectedTask, 0, 500) : undefined),
@@ -44,7 +49,10 @@ export function HistoryView() {
             <button
               key={task.taskId}
               className={task.taskId === selectedTask ? "history-task active" : "history-task"}
-              onClick={() => setSelectedTaskId(task.taskId)}
+              onClick={() => {
+                setLocalSelectedTaskId(task.taskId);
+                onSelectTask(task.taskId);
+              }}
             >
               <strong>{task.taskId}</strong>
               <span>{task.latestStatus ?? "unknown"} · {task.eventCount} events</span>
@@ -80,4 +88,3 @@ export function HistoryView() {
     </section>
   );
 }
-

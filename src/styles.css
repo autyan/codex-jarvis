@@ -134,6 +134,11 @@ textarea {
   border-color: #d2ccc1;
 }
 
+.nav-item.muted {
+  color: #8a8175;
+  cursor: default;
+}
+
 .nav-list.compact .nav-item {
   display: block;
 }

@@ -16,6 +16,7 @@ import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
+import { listRecentTasks } from "./api/tasks";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
 import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
@@ -42,6 +43,11 @@ export function App() {
   const codexQuery = useQuery({
     queryKey: ["codex-cli"],
     queryFn: detectCodexCli,
+  });
+  const recentTasksQuery = useQuery({
+    queryKey: ["recent-tasks", "sidebar"],
+    queryFn: () => listRecentTasks(6),
+    refetchInterval: 5000,
   });
   const activeProfile = useMemo(
     () => profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0],
@@ -93,9 +99,20 @@ export function App() {
         <section>
           <h2>Sessions</h2>
           <nav className="nav-list compact">
-            <button className="nav-item active">Current</button>
-            <button className="nav-item">PATH cleanup</button>
-            <button className="nav-item">fcitx issue</button>
+            {(recentTasksQuery.data ?? []).map((task) => (
+              <button
+                key={task.taskId}
+                className={task.taskId === activeTaskId ? "nav-item active" : "nav-item"}
+                onClick={() => {
+                  setActiveTaskId(task.taskId);
+                  setActiveTab("history");
+                }}
+              >
+                <span>{task.taskId}</span>
+                <small>{task.latestStatus ?? `${task.eventCount} events`}</small>
+              </button>
+            ))}
+            {!recentTasksQuery.data?.length ? <button className="nav-item muted">No sessions yet</button> : null}
           </nav>
         </section>
       </aside>
@@ -124,6 +141,7 @@ export function App() {
           onDetectCodex={() => void codexQuery.refetch()}
           activeTaskId={activeTaskId}
           onTaskStarted={(taskId) => setActiveTaskId(taskId)}
+          onTaskSelected={(taskId) => setActiveTaskId(taskId)}
           attachedTerminalOutput={attachedTerminalOutput}
           onAttachTerminalOutput={(output) => setAttachedTerminalOutput(output)}
           onClearAttachedTerminalOutput={() => setAttachedTerminalOutput(undefined)}
@@ -221,6 +239,7 @@ function Workspace({
   onDetectCodex,
   activeTaskId,
   onTaskStarted,
+  onTaskSelected,
   attachedTerminalOutput,
   onAttachTerminalOutput,
   onClearAttachedTerminalOutput,
@@ -232,6 +251,7 @@ function Workspace({
   onDetectCodex: () => void;
   activeTaskId?: string;
   onTaskStarted: (taskId: string) => void;
+  onTaskSelected: (taskId: string) => void;
   attachedTerminalOutput?: string;
   onAttachTerminalOutput: (output: string) => void;
   onClearAttachedTerminalOutput: () => void;
@@ -253,7 +273,7 @@ function Workspace({
   }
 
   if (activeTab === "history") {
-    return <HistoryView />;
+    return <HistoryView selectedTaskId={activeTaskId} onSelectTask={onTaskSelected} />;
   }
 
   if (activeTab === "settings") {
