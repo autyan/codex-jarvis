@@ -1,7 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
+import { useQuery } from "@tanstack/react-query";
 import { Ban, CheckCircle2, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cancelTask, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
+import { cancelTask, listChangedFiles, listTaskEvents, startDiagnoseTask, startPatchTask } from "../../api/tasks";
 import type { TaskProfile } from "../../types/profile";
 import type { PersistedTaskEvent, TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
 import { VirtualLog } from "./VirtualLog";
@@ -39,7 +40,13 @@ export function TaskRunner({
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
   const canCancel = Boolean(taskId) && isActive;
-  const canApplyProposal = status === "awaiting_review";
+  const { data: changedFiles, refetch: refetchChangedFiles } = useQuery({
+    queryKey: ["changed-files", taskId, "runner"],
+    queryFn: () => (taskId ? listChangedFiles(taskId) : []),
+    enabled: Boolean(taskId),
+    refetchInterval: status === "awaiting_review" ? 1500 : false,
+  });
+  const canApplyProposal = (changedFiles?.length ?? 0) > 0 && !isActive;
   const displayTitle = taskId ? (selectedTaskTitle ?? "Conversation") : "New Conversation";
   const hasOlderEvents = eventOffset > 0;
 
@@ -77,6 +84,9 @@ export function TaskRunner({
 
       const payload = event.payload;
       if (payload.status) setStatus(payload.status);
+      if (payload.event === "file_changed" || payload.event === "diff_ready" || payload.event === "rolled_back") {
+        void refetchChangedFiles();
+      }
 
       if (payload.text) {
         setLogs((currentLogs) => {
@@ -104,7 +114,7 @@ export function TaskRunner({
       isMounted = false;
       removeListener?.();
     };
-  }, []);
+  }, [refetchChangedFiles]);
 
   useEffect(() => {
     if (!selectedTaskId) {

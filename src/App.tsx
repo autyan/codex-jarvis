@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
-import { deleteTask, listRecentTasks, renameTask } from "./api/tasks";
+import { deleteTask, listChangedFiles, listRecentTasks, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -55,6 +55,13 @@ export function App() {
   const recentTasks = (recentTasksQuery.data ?? []).filter((task) => !pinnedTaskIds.includes(task.taskId));
   const allTasks = recentTasksQuery.data ?? [];
   const activeTask = allTasks.find((task) => task.taskId === activeTaskId);
+  const activeChangedFilesQuery = useQuery({
+    queryKey: ["changed-files", activeTaskId, "activity"],
+    queryFn: () => (activeTaskId ? listChangedFiles(activeTaskId) : []),
+    enabled: Boolean(activeTaskId),
+    refetchInterval: activeTask?.latestStatus === "awaiting_review" ? 1500 : 5000,
+  });
+  const hasReviewableProposal = (activeChangedFilesQuery.data?.length ?? 0) > 0;
 
   useEffect(() => {
     function disableDefaultContextMenu(event: globalThis.MouseEvent) {
@@ -221,7 +228,7 @@ export function App() {
           <UserRound size={16} />
           Profile: {activeProfile.name}
         </button>
-        <button onClick={() => setReviewOpen(true)}>
+        <button onClick={() => hasReviewableProposal && setReviewOpen(true)} disabled={!hasReviewableProposal}>
           <FileDiff size={16} />
           Review
         </button>
