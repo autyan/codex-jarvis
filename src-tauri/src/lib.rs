@@ -677,6 +677,9 @@ fn start_terminal(
         .map_err(|error| error.to_string())?;
 
     let mut command = CommandBuilder::new(&shell);
+    if shell.ends_with("bash") || shell.ends_with("zsh") || shell.ends_with("fish") || shell.ends_with("sh") {
+        command.arg("-i");
+    }
     command.cwd(cwd);
     let child = pair.slave.spawn_command(command).map_err(|error| error.to_string())?;
     drop(pair.slave);

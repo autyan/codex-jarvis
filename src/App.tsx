@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, FileDiff, Pin, PinOff, Settings, Terminal, UserRound } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli } from "./api/codex";
 import { listRecentTasks } from "./api/tasks";
@@ -63,8 +64,9 @@ export function App() {
     const startWidth = terminalWidth;
 
     function handleMove(moveEvent: globalThis.MouseEvent) {
+      const maxWidth = Math.max(220, window.innerWidth - 220 - 200);
       const nextWidth = startWidth - (moveEvent.clientX - startX);
-      setTerminalWidth(Math.min(620, Math.max(280, nextWidth)));
+      setTerminalWidth(Math.min(maxWidth, Math.max(220, nextWidth)));
     }
 
     function handleUp() {
@@ -79,10 +81,10 @@ export function App() {
   return (
     <div
       className={terminalOpen ? "app-shell terminal-open" : "app-shell"}
-      style={terminalOpen ? { gridTemplateColumns: `220px minmax(640px, 1fr) ${terminalWidth}px` } : undefined}
+      style={terminalOpen ? { gridTemplateColumns: `220px minmax(200px, 1fr) ${terminalWidth}px` } : undefined}
     >
-      <header className="top-bar">
-        <div>
+      <header className="top-bar" data-tauri-drag-region>
+        <div data-tauri-drag-region>
           <h1>Codex Jarvis</h1>
         </div>
         <div className="top-status">
@@ -93,6 +95,7 @@ export function App() {
           <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings size={18} />
           </button>
+          <WindowControls />
         </div>
       </header>
 
@@ -198,6 +201,18 @@ export function App() {
           <ReviewView taskId={activeTaskId} />
         </Modal>
       ) : null}
+    </div>
+  );
+}
+
+function WindowControls() {
+  const appWindow = getCurrentWindow();
+
+  return (
+    <div className="window-controls">
+      <button aria-label="Minimize" onClick={() => void appWindow.minimize()}>−</button>
+      <button aria-label="Maximize" onClick={() => void appWindow.toggleMaximize()}>□</button>
+      <button aria-label="Close" onClick={() => void appWindow.close()}>×</button>
     </div>
   );
 }

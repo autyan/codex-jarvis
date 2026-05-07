@@ -24,15 +24,15 @@ textarea {
 .app-shell {
   display: grid;
   grid-template:
-    "top top top" 32px
+    "top top top" 28px
     "side main terminal" minmax(0, 1fr)
     "bottom bottom bottom" 24px
-    / 220px minmax(520px, 1fr) 34px;
+    / 220px minmax(200px, 1fr) 34px;
   min-height: 100vh;
 }
 
 .app-shell.terminal-open {
-  grid-template-columns: 220px minmax(640px, 1fr) 360px;
+  grid-template-columns: 220px minmax(200px, 1fr) 360px;
 }
 
 .top-bar {
@@ -42,7 +42,9 @@ textarea {
   display: flex;
   grid-area: top;
   justify-content: space-between;
-  padding: 0 8px 0 12px;
+  min-width: 0;
+  padding: 0 0 0 10px;
+  user-select: none;
 }
 
 .top-bar h1,
@@ -62,6 +64,7 @@ textarea {
   color: #e7e7e7;
   font-size: 12px;
   font-weight: 500;
+  line-height: 28px;
 }
 
 .top-status,
@@ -75,7 +78,8 @@ textarea {
 }
 
 .top-status {
-  gap: 6px;
+  gap: 4px;
+  height: 28px;
 }
 
 .top-status span,
@@ -100,8 +104,9 @@ textarea {
   color: #9cdcfe;
   display: inline-flex;
   gap: 6px;
-  height: 24px;
-  padding: 0 8px;
+  font-size: 12px;
+  height: 22px;
+  padding: 0 7px;
 }
 
 .icon-button {
@@ -111,9 +116,37 @@ textarea {
   border-radius: 4px;
   color: #cccccc;
   display: inline-flex;
-  height: 24px;
+  height: 22px;
   justify-content: center;
-  width: 24px;
+  width: 22px;
+}
+
+.window-controls {
+  display: flex;
+  height: 28px;
+  margin-left: 4px;
+}
+
+.window-controls button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #cccccc;
+  display: inline-flex;
+  font-size: 14px;
+  height: 28px;
+  justify-content: center;
+  line-height: 1;
+  width: 36px;
+}
+
+.window-controls button:hover {
+  background: #3c3c3c;
+}
+
+.window-controls button:last-child:hover {
+  background: #c42b1c;
+  color: #ffffff;
 }
 
 .sidebar {
@@ -249,7 +282,7 @@ textarea {
 
 .workspace-panel,
 .setup-view {
-  min-height: calc(100vh - 66px);
+  min-height: calc(100vh - 52px);
   padding: 10px;
 }
 
@@ -530,7 +563,7 @@ textarea {
 
 .terminal-dock .workspace-panel,
 .terminal-dock .terminal-workspace {
-  min-height: calc(100vh - 56px);
+  min-height: calc(100vh - 52px);
 }
 
 .terminal-resizer {
@@ -755,8 +788,11 @@ textarea {
   background: #007acc;
   border-top: 0;
   display: flex;
+  flex-wrap: nowrap;
   gap: 2px;
   grid-area: bottom;
+  min-height: 24px;
+  overflow: hidden;
   padding: 0 6px;
 }
 
@@ -769,8 +805,17 @@ textarea {
   display: inline-flex;
   font-size: 12px;
   gap: 5px;
-  height: 24px;
+  height: 20px;
+  line-height: 1;
+  min-width: 0;
   padding: 0 7px;
+  white-space: nowrap;
+}
+
+.bottom-activity svg {
+  flex: 0 0 auto;
+  height: 13px;
+  width: 13px;
 }
 
 .bottom-activity button.active,

@@ -21,9 +21,23 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
   const [status, setStatus] = useState<"idle" | "starting" | "running" | "closed" | "failed">("idle");
 
   useEffect(() => {
-    void openTerminal();
+    let removeListener: (() => void) | undefined;
+
+    listen<TerminalEvent>("terminal://event", (event) => {
+      if (event.payload.terminalId !== terminalIdRef.current) return;
+      if (event.payload.event === "terminal_output" && event.payload.data) {
+        terminalRef.current?.write(event.payload.data);
+      }
+      if (event.payload.event === "terminal_closed") {
+        setStatus("closed");
+      }
+    }).then((unsubscribe) => {
+      removeListener = unsubscribe;
+      void openTerminal();
+    });
 
     return () => {
+      removeListener?.();
       if (terminalIdRef.current) {
         void closeTerminal(terminalIdRef.current);
       }
@@ -53,7 +67,6 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
 
     terminalRef.current = term;
     term.open(containerRef.current!);
-    term.focus();
     term.onData((data) => {
       if (terminalIdRef.current) void writeTerminal(terminalIdRef.current, data);
     });
@@ -67,17 +80,7 @@ export function TerminalView({ profile, onAttachOutput: _onAttachOutput }: Termi
       terminalIdRef.current = response.terminalId;
       setStatus("running");
       await resizeTerminal(response.terminalId, defaultCols, defaultRows);
-
-      const unsubscribe = await listen<TerminalEvent>("terminal://event", (event) => {
-        if (event.payload.terminalId !== response.terminalId) return;
-        if (event.payload.event === "terminal_output" && event.payload.data) {
-          term.write(event.payload.data);
-        }
-        if (event.payload.event === "terminal_closed") {
-          setStatus("closed");
-          unsubscribe();
-        }
-      });
+      requestAnimationFrame(() => term.focus());
     } catch (error) {
       setStatus("failed");
       term.writeln(`Failed to start terminal: ${error instanceof Error ? error.message : String(error)}`);
