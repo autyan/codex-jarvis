@@ -901,6 +901,34 @@ textarea {
   white-space: pre-wrap;
 }
 
+.context-snapshot {
+  background: #1f1f1f;
+  border: 1px solid #333333;
+  border-radius: 3px;
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+}
+
+.context-snapshot strong {
+  color: #d4d4d4;
+  font-size: 11px;
+}
+
+.context-snapshot span {
+  color: #969696;
+  font-size: 11px;
+}
+
+.context-snapshot pre {
+  color: #bbbbbb;
+  font-family: inherit;
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .tool-action-row {
   display: grid;
 }

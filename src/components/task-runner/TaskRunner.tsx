@@ -43,6 +43,7 @@ export function TaskRunner({
   const [eventOffset, setEventOffset] = useState(0);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolTab>("proposal");
+  const [contextSnapshots, setContextSnapshots] = useState<ContextSnapshot[]>([]);
   const activeTaskIdRef = useRef<string | undefined>(undefined);
   const isActive = status === "starting" || status === "running" || status === "snapshot_created" || status === "context_collected";
   const canRun = prompt.trim().length > 0 && !isActive;
@@ -65,6 +66,7 @@ export function TaskRunner({
   const toolLogs = useMemo(() => logs.filter((log) => log.source !== "user" && log.source !== "assistant"), [logs]);
   const chatLogs = useMemo(() => logs.filter((log) => log.source === "user" || log.source === "assistant"), [logs]);
   const tokenEstimate = useMemo(() => estimateTokenUsage(chatLogs, attachedContext), [attachedContext, chatLogs]);
+  const sessionTokenEstimate = useMemo(() => estimateSessionTokens(chatLogs, contextSnapshots), [chatLogs, contextSnapshots]);
   const executionItems = useMemo(() => buildExecutionTimeline(toolLogs), [toolLogs]);
 
   const loadLatestEvents = useCallback(async (nextTaskId: string) => {
@@ -186,6 +188,14 @@ export function TaskRunner({
 
     try {
       const message = buildConversationPrompt(prompt, logs, Boolean(taskId));
+      const nextContextSnapshot = buildContextSnapshot({
+        attachedContext,
+        chatLogs,
+        message,
+        model: settings?.codexModel,
+        effort: settings?.codexReasoningEffort ?? "medium",
+      });
+      setContextSnapshots((current) => [...current.slice(-20), nextContextSnapshot]);
       const request = {
         taskId: nextTaskId,
         profileId: profile.id,
@@ -312,8 +322,10 @@ export function TaskRunner({
         toolLogs={toolLogs}
         executionItems={executionItems}
         tokenEstimate={tokenEstimate}
+        sessionTokenEstimate={sessionTokenEstimate}
         attachedContext={attachedContext}
         proposal={proposalState?.content}
+        contextSnapshots={contextSnapshots}
       />
     </section>
   );
@@ -334,8 +346,10 @@ function TaskSideTools({
   toolLogs,
   executionItems,
   tokenEstimate,
+  sessionTokenEstimate,
   attachedContext,
   proposal,
+  contextSnapshots,
 }: {
   activeTool: ToolTab;
   onSelectTool: (tool: ToolTab) => void;
@@ -351,9 +365,12 @@ function TaskSideTools({
   toolLogs: TaskLogLine[];
   executionItems: ExecutionTimelineItem[];
   tokenEstimate: { label: string; approximateTokens: number; chatMessages: number };
+  sessionTokenEstimate: { label: string; approximateTokens: number };
   attachedContext?: string;
   proposal?: string;
+  contextSnapshots: ContextSnapshot[];
 }) {
+  const latestContext = contextSnapshots.at(-1);
   return (
     <aside className="task-side-tools">
       <div className="inspector-title">
@@ -468,6 +485,15 @@ function TaskSideTools({
             <dd>{attachedContext ? "selection attached" : "none"}</dd>
           </div>
         </dl>
+        {latestContext ? (
+          <div className="context-snapshot">
+            <strong>Last send</strong>
+            <span>{latestContext.chatMessages} chat msgs · {latestContext.approximateTokens} tokens · {latestContext.attachedContext ? "terminal attached" : "no terminal"}</span>
+            <pre>{latestContext.preview}</pre>
+          </div>
+        ) : (
+          <p>No prompt has been sent in this window.</p>
+        )}
       </InspectorSection>
 
       <InspectorSection
@@ -481,6 +507,10 @@ function TaskSideTools({
           <div>
             <dt>Approx</dt>
             <dd>{tokenEstimate.approximateTokens}</dd>
+          </div>
+          <div>
+            <dt>Session</dt>
+            <dd>{sessionTokenEstimate.label} · {sessionTokenEstimate.approximateTokens}</dd>
           </div>
           <div>
             <dt>Messages</dt>
@@ -506,6 +536,16 @@ type ExecutionTimelineItem = {
   meta: string;
   body?: string;
   tone: "normal" | "danger" | "success" | "muted";
+};
+
+type ContextSnapshot = {
+  approximateTokens: number;
+  attachedContext: boolean;
+  chatMessages: number;
+  effort: string;
+  model: string;
+  preview: string;
+  createdAt: number;
 };
 
 function InspectorSection({
@@ -580,6 +620,39 @@ function estimateTokenUsage(chatLogs: TaskLogLine[], attachedContext?: string) {
     approximateTokens,
     chatMessages: chatLogs.length,
     label,
+  };
+}
+
+function estimateSessionTokens(chatLogs: TaskLogLine[], snapshots: ContextSnapshot[]) {
+  const chatTokens = Math.ceil(chatLogs.reduce((total, log) => total + log.text.length, 0) / 4);
+  const promptTokens = snapshots.reduce((total, snapshot) => total + snapshot.approximateTokens, 0);
+  const approximateTokens = chatTokens + promptTokens;
+  const label = approximateTokens < 10000 ? "small" : approximateTokens < 40000 ? "medium" : "large";
+  return { approximateTokens, label };
+}
+
+function buildContextSnapshot({
+  attachedContext,
+  chatLogs,
+  effort,
+  message,
+  model,
+}: {
+  attachedContext?: string;
+  chatLogs: TaskLogLine[];
+  effort: string;
+  message: string;
+  model?: string;
+}) {
+  const textSize = message.length + (attachedContext?.length ?? 0);
+  return {
+    approximateTokens: Math.ceil(textSize / 4),
+    attachedContext: Boolean(attachedContext),
+    chatMessages: Math.min(chatLogs.length, 24),
+    createdAt: Date.now(),
+    effort,
+    model: model ?? "CLI default",
+    preview: compactTranscriptText(message),
   };
 }
 
