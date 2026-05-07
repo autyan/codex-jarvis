@@ -48,26 +48,37 @@ The MVP does not execute privileged commands, edit `/etc`, install packages, or 
 Prerequisites:
 
 - Node.js 22+
-- npm
+- pnpm 10.33.4
 - Rust toolchain with Cargo
 - Codex CLI for end-to-end local validation
+- Fedora Tauri build dependencies:
+
+```bash
+sudo dnf install -y dbus-devel webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel
+```
 
 Install dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 Run the frontend only:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Run the Tauri app:
 
 ```bash
-npm run tauri dev
+pnpm run tauri dev
+```
+
+Build the frontend:
+
+```bash
+pnpm run build
 ```
 
 ## Design Docs
@@ -78,4 +89,3 @@ npm run tauri dev
 ## License
 
 MIT
-

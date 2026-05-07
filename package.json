@@ -4,6 +4,7 @@
   "private": false,
   "description": "A Linux desktop control panel for Codex CLI.",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -33,4 +34,3 @@
     "vite": "^7.2.4"
   }
 }
-
