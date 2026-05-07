@@ -201,7 +201,7 @@ export function TaskRunner({
       const request = {
         taskId: nextTaskId,
         profileId: profile.id,
-        prompt: buildProposalPrompt(message, profile.writeEnabled, directExecute),
+        prompt: message,
         userMessage: prompt,
         attachedContext,
         directExecute,
@@ -761,16 +761,6 @@ function summarizeTimelineText(text: string) {
   const limit = 420;
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}\n[truncated]`;
-}
-
-function buildProposalPrompt(message: string, canWriteDrafts: boolean, directExecute: boolean) {
-  const proposalInstruction = directExecute
-    ? "Direct execute is enabled for this turn. Execute safe, non-privileged commands when needed instead of only drafting a proposal. Keep all file writes inside the current session workspace unless the app explicitly allows more."
-    : canWriteDrafts
-      ? "The proposal is allowed to evolve over multiple messages. If the conversation reaches a concrete decision, update the current proposal automatically. Use files in the current session workspace for file drafts. For privileged or risky system operations, write a command plan instead of executing it."
-      : "The proposal is allowed to evolve over multiple messages. If the conversation reaches a concrete decision, update the command plan in your response. Do not write files.";
-
-  return `${proposalInstruction}\n\nUser message:\n${message}`;
 }
 
 function buildConversationPrompt(message: string, logs: TaskLogLine[], isContinuation: boolean) {

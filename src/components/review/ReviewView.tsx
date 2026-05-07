@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, FileDiff, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { applyTaskReview, getTaskDiff, listChangedFiles, readChangedFile, rollbackTask } from "../../api/tasks";
+import { applyTaskReview, getTaskDiff, getTaskProposal, listChangedFiles, readChangedFile, rollbackTask } from "../../api/tasks";
 import type { ApplyReviewResult, RollbackResult } from "../../types/task";
 
 type ReviewViewProps = {
@@ -29,7 +29,13 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
     queryFn: () => (taskId ? getTaskDiff(taskId) : ""),
     enabled: Boolean(taskId),
   });
+  const proposalQuery = useQuery({
+    queryKey: ["task-proposal", taskId, "review"],
+    queryFn: () => (taskId ? getTaskProposal(taskId) : null),
+    enabled: Boolean(taskId),
+  });
   const changedFiles = changedFilesQuery.data ?? [];
+  const proposal = proposalQuery.data?.content ?? "";
   const selectedFile = changedFiles.find((file) => file.path === selectedPath) ?? changedFiles[0];
   const selectedIsMarkdown = Boolean(selectedFile && isMarkdownFile(selectedFile.path));
   const fileContentQuery = useQuery({
@@ -55,6 +61,7 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
   function refresh() {
     void changedFilesQuery.refetch();
     void diffQuery.refetch();
+    void proposalQuery.refetch();
     void fileContentQuery.refetch();
   }
 
@@ -123,7 +130,7 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
             <RefreshCw size={14} />
             Refresh
           </button>
-          <button className="review-action apply-review-action" onClick={handleApply} disabled={isApplying || changedFiles.length === 0}>
+          <button className="review-action apply-review-action" onClick={handleApply} disabled={isApplying || (!changedFiles.length && !proposal)}>
             <CheckCircle2 size={14} />
             Apply
           </button>
@@ -169,14 +176,14 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
               <span>{file.path}</span>
             </button>
           ))}
-          {changedFilesQuery.data?.length === 0 ? <p>No changed files detected yet.</p> : null}
+          {changedFilesQuery.data?.length === 0 ? <p>No changed files detected yet. Review the current proposal instead.</p> : null}
         </aside>
 
         <section className="review-content">
           <div className="review-content-header">
             <div>
-              <h3>{selectedFile ? basename(selectedFile.path) : "Diff"}</h3>
-              {selectedFile ? <span>{selectedIsMarkdown ? "Markdown preview" : "Raw diff"}</span> : null}
+              <h3>{selectedFile ? basename(selectedFile.path) : "Current Proposal"}</h3>
+              {selectedFile ? <span>{selectedIsMarkdown ? "Markdown preview" : "Raw diff"}</span> : <span>Markdown preview</span>}
             </div>
             {selectedIsMarkdown ? (
               <button className="review-action compact" onClick={() => setShowRawDiff((current) => !current)}>
@@ -184,7 +191,9 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
               </button>
             ) : null}
           </div>
-          {selectedIsMarkdown && !showRawDiff && selectedFile?.status !== "deleted" ? (
+          {!selectedFile ? (
+            <MarkdownPreview content={proposal} isLoading={proposalQuery.isLoading} />
+          ) : selectedIsMarkdown && !showRawDiff && selectedFile?.status !== "deleted" ? (
             <MarkdownPreview
               content={fileContentQuery.data?.content ?? markdownFromAddedDiff(selectedDiff) ?? ""}
               isLoading={fileContentQuery.isLoading}

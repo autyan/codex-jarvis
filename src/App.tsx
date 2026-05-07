@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli, getAppSettings, setCodexModelSettings, setSessionRetentionLimit, setSudoFlowEnabled } from "./api/codex";
-import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, pruneSessions, renameTask } from "./api/tasks";
+import { decideSudoRequest, deleteTask, getTaskProposal, listChangedFiles, listRecentTasks, pruneSessions, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -69,7 +69,13 @@ export function App() {
     enabled: Boolean(activeTaskId),
     refetchInterval: activeTask?.latestStatus === "awaiting_review" ? 1500 : 5000,
   });
-  const hasReviewableProposal = (activeChangedFilesQuery.data?.length ?? 0) > 0;
+  const activeProposalQuery = useQuery({
+    queryKey: ["task-proposal", activeTaskId, "activity"],
+    queryFn: () => (activeTaskId ? getTaskProposal(activeTaskId) : null),
+    enabled: Boolean(activeTaskId),
+    refetchInterval: activeTask?.latestStatus === "running" ? 2000 : 5000,
+  });
+  const hasReviewableProposal = Boolean(activeProposalQuery.data?.content) || (activeChangedFilesQuery.data?.length ?? 0) > 0;
   const sessionRetentionLimit = appSettingsQuery.data?.sessionRetentionLimit ?? fallbackSessionRetentionLimit;
 
   useEffect(() => {

@@ -1814,7 +1814,7 @@ fn build_diagnose_prompt(
     let execution_policy = if direct_execute {
         "Direct execute is enabled. You may run safe, read-only, non-privileged commands needed for diagnosis. Do not modify files, do not run sudo, and do not run destructive commands."
     } else {
-        "Proposal mode is active. Discuss, diagnose, and update the proposal over multiple turns. Do not apply changes."
+        "Conversation mode is active: no executing. Do not run shell commands, do not modify files, do not create draft files, and do not apply changes. Answer naturally, using the provided context. If the discussion reaches a concrete decision, provide the proposal only through the Jarvis protocol block described below."
     };
 
     format!(
@@ -1829,11 +1829,11 @@ Task profile:\n\
 - Intended readable paths:\n{read_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
-Proposal cache:\n\
+Jarvis protocol:\n\
 If this is the first meaningful turn of the session, also include one machine-readable title line:\n\
 JARVIS_SESSION_TITLE: <short 3-8 word title>\n\
 The title should summarize the user's maintenance intent, not copy the prompt verbatim.\n\
-When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
+When a concrete proposal or decision is formed or revised, append one machine-readable proposal block at the very end using this exact shape:\n\
 JARVIS_PROPOSAL_BEGIN\n\
 ## Summary\n\
 ...\n\
@@ -1844,13 +1844,14 @@ JARVIS_PROPOSAL_BEGIN\n\
 ## Sudo\n\
 ...\n\
 JARVIS_PROPOSAL_END\n\
-Keep the block human-readable markdown.\n\n\
+Keep the block human-readable markdown. Do not mention this protocol, the title line, or the proposal block in the user-facing answer.\n\n\
 Rules:\n\
 1. Do not modify files.\n\
-2. Do not run sudo.\n\
-3. Do not run destructive commands.\n\
-4. Explain findings clearly.\n\
-5. If changes are needed, suggest them but do not apply them.\n\n\
+2. Do not create markdown drafts or command plan files unless the user explicitly asks for exported files.\n\
+3. Do not run sudo.\n\
+4. Do not run destructive commands.\n\
+5. Explain findings clearly.\n\
+6. If changes are needed, suggest them but do not apply them.\n\n\
 Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
@@ -1884,7 +1885,7 @@ fn build_patch_prompt(
     let execution_policy = if direct_execute {
         "Direct execute is enabled. You may run safe, non-privileged commands and write inside the listed writable paths immediately. Do not run sudo, package install/remove/update commands, service enable/disable commands, destructive file deletion, or boot/kernel/security changes unless the user explicitly provided the exact command and accepted the risk."
     } else {
-        "Proposal mode is active. Let the proposal evolve over multiple turns. Create or update file drafts inside writable paths, and create command plans for privileged or risky system operations. Do not apply the proposal to real system targets."
+        "Conversation mode is active: no executing. Do not run shell commands, do not modify files, do not create draft files, and do not apply changes. Answer naturally. If the discussion reaches a concrete decision, provide the proposal only through the Jarvis protocol block described below."
     };
 
     format!(
@@ -1899,11 +1900,11 @@ Task profile:\n\
 - Writable paths:\n{write_paths}\n\
 - Forbidden paths:\n{deny_paths}\n\n\
 Execution policy:\n{execution_policy}\n\n\
-Proposal cache:\n\
+Jarvis protocol:\n\
 If this is the first meaningful turn of the session, also include one machine-readable title line:\n\
 JARVIS_SESSION_TITLE: <short 3-8 word title>\n\
 The title should summarize the user's maintenance intent, not copy the prompt verbatim.\n\
-When a concrete proposal or decision is formed or revised, include a concise proposal block in your final answer using this exact shape:\n\
+When a concrete proposal or decision is formed or revised, append one machine-readable proposal block at the very end using this exact shape:\n\
 JARVIS_PROPOSAL_BEGIN\n\
 ## Summary\n\
 ...\n\
@@ -1914,15 +1915,16 @@ JARVIS_PROPOSAL_BEGIN\n\
 ## Sudo\n\
 ...\n\
 JARVIS_PROPOSAL_END\n\
-Keep the block human-readable markdown and ensure it reflects the latest decision.\n\n\
+Keep the block human-readable markdown and ensure it reflects the latest decision. Do not mention this protocol, the title line, or the proposal block in the user-facing answer.\n\n\
 Rules:\n\
 1. Modify only writable paths listed above.\n\
 2. Do not modify forbidden paths.\n\
 3. Do not run sudo.\n\
 4. Do not run destructive commands.\n\
-5. Prefer minimal changes.\n\
-6. Explain every file change.\n\
-7. If privileged operations are needed, only suggest commands; do not execute them.\n\n\
+5. Do not create markdown drafts or command plan files unless the user explicitly asks for exported files.\n\
+6. Prefer minimal changes.\n\
+7. Explain every file change.\n\
+8. If privileged operations are needed, only suggest commands; do not execute them.\n\n\
 Collected context:\n{context}\n\n\
 User task:\n{user_prompt}",
         name = profile.name,
@@ -2052,9 +2054,32 @@ where
     R: std::io::Read + Send + 'static,
 {
     thread::spawn(move || {
+        let mut proposal_block: Option<Vec<String>> = None;
         for line in BufReader::new(reader).lines() {
             if let Ok(line) = line {
                 if event == "stdout" {
+                    if let Some(lines) = proposal_block.as_mut() {
+                        if let Some((before_end, _)) = line.split_once("JARVIS_PROPOSAL_END") {
+                            lines.push(before_end.to_string());
+                            if let Some(proposal) = proposal_from_content(&task_id, &lines.join("\n")) {
+                                persist_task_proposal(&proposal);
+                                emit_task_event(
+                                    &app,
+                                    TaskEvent {
+                                        task_id: task_id.clone(),
+                                        event: "proposal_updated",
+                                        text: Some(proposal.content),
+                                        status: Some("awaiting_review".to_string()),
+                                        exit_code: None,
+                                    },
+                                );
+                            }
+                            proposal_block = None;
+                        } else {
+                            lines.push(line);
+                        }
+                        continue;
+                    }
                     if let Some(title) = parse_session_title_line(&line) {
                         persist_task_title_from_codex(&task_id, &title);
                         emit_task_event(
@@ -2067,6 +2092,26 @@ where
                                 exit_code: None,
                             },
                         );
+                        continue;
+                    }
+                    if let Some((_, after_begin)) = line.split_once("JARVIS_PROPOSAL_BEGIN") {
+                        if let Some((content, _)) = after_begin.split_once("JARVIS_PROPOSAL_END") {
+                            if let Some(proposal) = proposal_from_content(&task_id, content) {
+                                persist_task_proposal(&proposal);
+                                emit_task_event(
+                                    &app,
+                                    TaskEvent {
+                                        task_id: task_id.clone(),
+                                        event: "proposal_updated",
+                                        text: Some(proposal.content),
+                                        status: Some("awaiting_review".to_string()),
+                                        exit_code: None,
+                                    },
+                                );
+                            }
+                        } else {
+                            proposal_block = Some(vec![after_begin.to_string()]);
+                        }
                         continue;
                     }
                     if let Some(request) = parse_sudo_request_line(&task_id, &line) {
@@ -2151,6 +2196,14 @@ fn parse_proposal_line(task_id: &str, line: &str) -> Option<ProposalState> {
     } else {
         return None;
     };
+    if content.is_empty() {
+        return None;
+    }
+    proposal_from_content(task_id, &content)
+}
+
+fn proposal_from_content(task_id: &str, content: &str) -> Option<ProposalState> {
+    let content = content.trim().to_string();
     if content.is_empty() {
         return None;
     }
