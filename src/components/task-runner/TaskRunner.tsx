@@ -1,0 +1,167 @@
+import { listen } from "@tauri-apps/api/event";
+import { Ban, Play, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cancelTask, startDiagnoseTask } from "../../api/tasks";
+import type { TaskProfile } from "../../types/profile";
+import type { TaskEvent, TaskLogLine, TaskStatus } from "../../types/task";
+
+type TaskRunnerProps = {
+  profile: TaskProfile;
+};
+
+const defaultPrompt = "Check whether my shell PATH is configured cleanly.";
+
+export function TaskRunner({ profile }: TaskRunnerProps) {
+  const [prompt, setPrompt] = useState(defaultPrompt);
+  const [taskId, setTaskId] = useState<string>();
+  const [status, setStatus] = useState<TaskStatus>("idle");
+  const [logs, setLogs] = useState<TaskLogLine[]>([]);
+  const activeTaskIdRef = useRef<string | undefined>(undefined);
+  const canRun = prompt.trim().length > 0 && status !== "starting" && status !== "running";
+  const canCancel = Boolean(taskId) && (status === "starting" || status === "running" || status === "context_collected");
+
+  useEffect(() => {
+    let isMounted = true;
+    let removeListener: (() => void) | undefined;
+
+    listen<TaskEvent>("task://event", (event) => {
+      if (!isMounted || event.payload.taskId !== activeTaskIdRef.current) return;
+
+      const payload = event.payload;
+      if (payload.status) setStatus(payload.status);
+
+      if (payload.text) {
+        setLogs((currentLogs) => [
+          ...currentLogs.slice(-600),
+          {
+            id: `${payload.event}-${currentLogs.length}-${Date.now()}`,
+            source: logSource(payload.event),
+            text: payload.text ?? "",
+          },
+        ]);
+      }
+    }).then((unsubscribe) => {
+      removeListener = unsubscribe;
+    });
+
+    return () => {
+      isMounted = false;
+      removeListener?.();
+    };
+  }, []);
+
+  const statusLabel = useMemo(() => {
+    if (status === "context_collected") return "Context collected";
+    return status[0].toUpperCase() + status.slice(1);
+  }, [status]);
+
+  async function handleStart() {
+    const nextTaskId = `task_${Date.now()}`;
+    activeTaskIdRef.current = nextTaskId;
+    setTaskId(nextTaskId);
+    setStatus("starting");
+    setLogs([
+      {
+        id: "local-start",
+        source: "system",
+        text: "Starting diagnose task...",
+      },
+    ]);
+
+    try {
+      const response = await startDiagnoseTask({
+        taskId: nextTaskId,
+        profileId: profile.id,
+        prompt,
+      });
+      setTaskId(response.taskId);
+      setStatus("running");
+    } catch (error) {
+      setStatus("failed");
+      setLogs((currentLogs) => [
+        ...currentLogs,
+        {
+          id: "local-error",
+          source: "stderr",
+          text: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    }
+  }
+
+  async function handleCancel() {
+    if (!taskId) return;
+    try {
+      await cancelTask(taskId);
+      setStatus("cancelled");
+    } catch (error) {
+      setLogs((currentLogs) => [
+        ...currentLogs,
+        {
+          id: `cancel-error-${Date.now()}`,
+          source: "stderr",
+          text: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    }
+  }
+
+  function resetTask() {
+    activeTaskIdRef.current = undefined;
+    setTaskId(undefined);
+    setStatus("idle");
+    setLogs([]);
+  }
+
+  return (
+    <section className="workspace-panel task-runner">
+      <div className="section-heading">
+        <div>
+          <h2>Task Runner</h2>
+          <span>{profile.name} profile</span>
+        </div>
+        <div className={`task-status status-${status}`}>{statusLabel}</div>
+      </div>
+
+      <label className="prompt-box">
+        <span>Prompt</span>
+        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+      </label>
+
+      <div className="button-row">
+        <button className="secondary-action" onClick={resetTask} disabled={status === "running"}>
+          <RotateCcw size={16} />
+          Reset
+        </button>
+        <button className="secondary-action" onClick={handleCancel} disabled={!canCancel}>
+          <Ban size={16} />
+          Cancel
+        </button>
+        <button className="primary action-with-icon" onClick={handleStart} disabled={!canRun}>
+          <Play size={16} />
+          Run Diagnose
+        </button>
+      </div>
+
+      <div className="output-box task-output" aria-live="polite">
+        {logs.length ? (
+          logs.map((line) => (
+            <div key={line.id} className={`log-line source-${line.source}`}>
+              <span>{line.source}</span>
+              <pre>{line.text}</pre>
+            </div>
+          ))
+        ) : (
+          <p>Run a diagnose task to collect context and stream Codex output.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function logSource(event: TaskEvent["event"]): TaskLogLine["source"] {
+  if (event === "context_collected") return "context";
+  if (event === "stdout") return "stdout";
+  if (event === "stderr" || event === "task_failed") return "stderr";
+  return "system";
+}

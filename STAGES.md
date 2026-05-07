@@ -28,6 +28,8 @@ pnpm run build
 
 ## Stage 1 — Codex CLI Setup
 
+Status: complete
+
 Goal:
 
 - make the first-run experience explicit and verify whether Codex CLI is available.
@@ -48,6 +50,8 @@ pnpm exec tauri dev
 ```
 
 ## Stage 2 — Profiles and Safety Policy
+
+Status: complete
 
 Goal:
 
@@ -70,6 +74,8 @@ cargo check
 ```
 
 ## Stage 3 — Diagnose Task Runner
+
+Status: complete
 
 Goal:
 
@@ -198,4 +204,3 @@ Validation:
 pnpm run build
 pnpm exec tauri build
 ```
-

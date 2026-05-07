@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { detectCodexCli } from "./api/codex";
 import { SetupWizard } from "./components/setup/SetupWizard";
+import { TaskRunner } from "./components/task-runner/TaskRunner";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
 import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
@@ -108,7 +109,7 @@ export function App() {
         </div>
         <Workspace
           activeTab={activeTab}
-          profileName={activeProfile.name}
+          profile={activeProfile}
           setupStatus={setupStatus}
           codexInfo={codexQuery.data}
           onDetectCodex={() => void codexQuery.refetch()}
@@ -200,13 +201,13 @@ function PolicySummary({ profile }: { profile: TaskProfile }) {
 
 function Workspace({
   activeTab,
-  profileName,
+  profile,
   setupStatus,
   codexInfo,
   onDetectCodex,
 }: {
   activeTab: WorkspaceTab;
-  profileName: string;
+  profile: TaskProfile;
   setupStatus: CodexSetupStatus;
   codexInfo?: Parameters<typeof SetupWizard>[0]["info"];
   onDetectCodex: () => void;
@@ -220,7 +221,7 @@ function Workspace({
       <section className="workspace-panel terminal-panel">
         <div className="section-heading">
           <h2>Terminal</h2>
-          <span>{profileName}: $HOME</span>
+          <span>{profile.name}: {profile.cwd}</span>
         </div>
         <pre>{`$ echo $SHELL
 /usr/bin/zsh
@@ -262,23 +263,5 @@ $ `}</pre>
     );
   }
 
-  return (
-    <section className="workspace-panel">
-      <div className="section-heading">
-        <h2>Task Runner</h2>
-        <span>{profileName} profile</span>
-      </div>
-      <label className="prompt-box">
-        <span>Prompt</span>
-        <textarea defaultValue="Clean up my zsh PATH configuration" />
-      </label>
-      <div className="button-row">
-        <button>Collect Context</button>
-        <button className="primary">Run Codex</button>
-      </div>
-      <div className="output-box">
-        <p>Live Codex output will stream here.</p>
-      </div>
-    </section>
-  );
+  return <TaskRunner profile={profile} />;
 }

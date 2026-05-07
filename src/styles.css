@@ -56,7 +56,8 @@ textarea {
 .top-status span,
 .panel-title,
 .tab,
-.button-row {
+.button-row,
+.action-with-icon {
   align-items: center;
   display: flex;
 }
@@ -294,9 +295,17 @@ textarea {
 }
 
 .button-row .primary {
+  align-items: center;
   background: #1f6b5d;
   border-color: #1f6b5d;
   color: #fff;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.button-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .output-box,
@@ -314,6 +323,69 @@ textarea {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   margin: 0;
   white-space: pre-wrap;
+}
+
+.task-output {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.log-line {
+  display: grid;
+  gap: 4px;
+}
+
+.log-line span {
+  color: #8fbbae;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.log-line.source-stderr span {
+  color: #e5a075;
+}
+
+.log-line.source-context span {
+  color: #d8b24a;
+}
+
+.log-line pre {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.task-status {
+  border: 1px solid #d8d2c8;
+  border-radius: 999px;
+  color: #50605b;
+  font-size: 13px;
+  padding: 5px 10px;
+}
+
+.status-running,
+.status-context_collected,
+.status-starting {
+  background: #e9f2ef;
+  border-color: #b9d2c9;
+  color: #1f6b5d;
+}
+
+.status-failed,
+.status-cancelled {
+  background: #f6e9df;
+  border-color: #dfc1a9;
+  color: #8a4b1f;
+}
+
+.status-finished {
+  background: #eee9dc;
+  border-color: #d8c891;
+  color: #6b581d;
 }
 
 .empty-state {
