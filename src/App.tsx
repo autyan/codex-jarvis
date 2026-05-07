@@ -15,6 +15,7 @@ import { HistoryView } from "./components/history/HistoryView";
 import { ReviewView } from "./components/review/ReviewView";
 import { SetupWizard } from "./components/setup/SetupWizard";
 import { TaskRunner } from "./components/task-runner/TaskRunner";
+import { TerminalView } from "./components/terminal/TerminalView";
 import { profiles } from "./data/profiles";
 import type { CodexSetupStatus } from "./types/codex";
 import { formatTaskMode, profilePathSummary, type PathPolicyGroup, type TaskProfile } from "./types/profile";
@@ -32,6 +33,7 @@ export function App() {
   const [activeProfileId, setActiveProfileId] = useState("shell");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
   const [activeTaskId, setActiveTaskId] = useState<string>();
+  const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
   const codexQuery = useQuery({
     queryKey: ["codex-cli"],
     queryFn: detectCodexCli,
@@ -117,6 +119,9 @@ export function App() {
           onDetectCodex={() => void codexQuery.refetch()}
           activeTaskId={activeTaskId}
           onTaskStarted={(taskId) => setActiveTaskId(taskId)}
+          attachedTerminalOutput={attachedTerminalOutput}
+          onAttachTerminalOutput={(output) => setAttachedTerminalOutput(output)}
+          onClearAttachedTerminalOutput={() => setAttachedTerminalOutput(undefined)}
         />
       </main>
 
@@ -211,6 +216,9 @@ function Workspace({
   onDetectCodex,
   activeTaskId,
   onTaskStarted,
+  attachedTerminalOutput,
+  onAttachTerminalOutput,
+  onClearAttachedTerminalOutput,
 }: {
   activeTab: WorkspaceTab;
   profile: TaskProfile;
@@ -219,25 +227,16 @@ function Workspace({
   onDetectCodex: () => void;
   activeTaskId?: string;
   onTaskStarted: (taskId: string) => void;
+  attachedTerminalOutput?: string;
+  onAttachTerminalOutput: (output: string) => void;
+  onClearAttachedTerminalOutput: () => void;
 }) {
   if (activeTab === "setup") {
     return <SetupWizard info={codexInfo} status={setupStatus} onDetect={onDetectCodex} />;
   }
 
   if (activeTab === "terminal") {
-    return (
-      <section className="workspace-panel terminal-panel">
-        <div className="section-heading">
-          <h2>Terminal</h2>
-          <span>{profile.name}: {profile.cwd}</span>
-        </div>
-        <pre>{`$ echo $SHELL
-/usr/bin/zsh
-$ echo $PATH
-/home/autyan/.local/bin:/usr/local/bin:/usr/bin
-$ `}</pre>
-      </section>
-    );
+    return <TerminalView profile={profile} onAttachOutput={onAttachTerminalOutput} />;
   }
 
   if (activeTab === "review") {
@@ -248,5 +247,12 @@ $ `}</pre>
     return <HistoryView />;
   }
 
-  return <TaskRunner profile={profile} onTaskStarted={onTaskStarted} />;
+  return (
+    <TaskRunner
+      profile={profile}
+      onTaskStarted={onTaskStarted}
+      attachedContext={attachedTerminalOutput}
+      onClearAttachedContext={onClearAttachedTerminalOutput}
+    />
+  );
 }

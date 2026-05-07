@@ -9,11 +9,13 @@ import { VirtualLog } from "./VirtualLog";
 type TaskRunnerProps = {
   profile: TaskProfile;
   onTaskStarted: (taskId: string) => void;
+  attachedContext?: string;
+  onClearAttachedContext: () => void;
 };
 
 const defaultPrompt = "Check whether my shell PATH is configured cleanly.";
 
-export function TaskRunner({ profile, onTaskStarted }: TaskRunnerProps) {
+export function TaskRunner({ profile, onTaskStarted, attachedContext, onClearAttachedContext }: TaskRunnerProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [mode, setMode] = useState<TaskMode>("diagnose");
   const [taskId, setTaskId] = useState<string>();
@@ -80,6 +82,7 @@ export function TaskRunner({ profile, onTaskStarted }: TaskRunnerProps) {
         taskId: nextTaskId,
         profileId: profile.id,
         prompt,
+        attachedContext,
       };
       const response = mode === "patch" ? await startPatchTask(request) : await startDiagnoseTask(request);
       setTaskId(response.taskId);
@@ -148,6 +151,14 @@ export function TaskRunner({ profile, onTaskStarted }: TaskRunnerProps) {
           Patch
         </button>
       </div>
+
+      {attachedContext ? (
+        <div className="attached-context">
+          <strong>Attached terminal output</strong>
+          <span>{attachedContext.slice(0, 180)}</span>
+          <button onClick={onClearAttachedContext}>Clear</button>
+        </div>
+      ) : null}
 
       <div className="button-row">
         <button className="secondary-action" onClick={resetTask} disabled={isActive}>

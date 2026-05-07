@@ -315,6 +315,33 @@ textarea {
   opacity: 0.45;
 }
 
+.attached-context {
+  align-items: center;
+  background: #e9f2ef;
+  border: 1px solid #b9d2c9;
+  border-radius: 8px;
+  color: #1f6b5d;
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.attached-context span {
+  color: #3f5a53;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attached-context button {
+  background: transparent;
+  border: 0;
+  color: #1f6b5d;
+  justify-self: start;
+  padding: 0;
+}
+
 .button-row {
   gap: 8px;
   margin: 14px 0;
@@ -356,6 +383,35 @@ textarea {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   margin: 0;
   white-space: pre-wrap;
+}
+
+.terminal-workspace {
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-meta {
+  color: #5f6b66;
+  display: flex;
+  gap: 12px;
+  margin: -6px 0 12px;
+}
+
+.terminal-error {
+  color: #8a4b1f;
+}
+
+.xterm-host {
+  background: #141a18;
+  border-radius: 8px;
+  flex: 1;
+  min-height: 460px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.xterm-host .xterm {
+  height: 100%;
 }
 
 .task-output {

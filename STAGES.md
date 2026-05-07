@@ -171,6 +171,8 @@ cargo test
 
 ## Stage 7 — Lightweight Terminal
 
+Status: complete
+
 Goal:
 
 - provide a user-driven shell for task-adjacent command interaction.

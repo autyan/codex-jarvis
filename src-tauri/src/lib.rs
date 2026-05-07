@@ -1,9 +1,10 @@
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
-    io::Write,
     io::{BufRead, BufReader},
+    io::Write,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -13,6 +14,13 @@ use std::{
 use tauri::{AppHandle, Emitter, State};
 
 type RunningTasks = Arc<Mutex<HashMap<String, Arc<Mutex<Child>>>>>;
+type TerminalSessions = Arc<Mutex<HashMap<String, TerminalSession>>>;
+
+struct TerminalSession {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn PtyChild + Send + Sync>,
+}
 
 #[derive(Debug, Serialize)]
 struct CodexCliInfo {
@@ -44,6 +52,7 @@ struct StartDiagnoseTaskRequest {
     task_id: Option<String>,
     profile_id: String,
     prompt: String,
+    attached_context: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +61,7 @@ struct StartPatchTaskRequest {
     task_id: Option<String>,
     profile_id: String,
     prompt: String,
+    attached_context: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +142,31 @@ struct RollbackResult {
     skipped: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartTerminalRequest {
+    profile_id: Option<String>,
+    cwd: Option<String>,
+    shell_path: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartTerminalResponse {
+    terminal_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalEvent {
+    terminal_id: String,
+    event: &'static str,
+    data: Option<String>,
+    exit_code: Option<i32>,
+}
+
 #[tauri::command]
 fn detect_codex_cli() -> CodexCliInfo {
     match Command::new("codex").arg("--version").output() {
@@ -175,6 +210,7 @@ fn start_diagnose_task(
         return Err("Prompt cannot be empty".to_string());
     }
 
+    let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
@@ -192,7 +228,7 @@ fn start_diagnose_task(
             },
         );
 
-        let context = collect_context(&profile);
+        let context = merge_attached_context(collect_context(&profile), attached_context.as_deref());
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -289,6 +325,7 @@ fn start_patch_task(
         return Err(format!("Profile {} does not allow writes", profile.name));
     }
 
+    let attached_context = request.attached_context;
     let task_id = request.task_id.unwrap_or_else(new_task_id);
     let registry = running_tasks.inner().clone();
     let app_for_thread = app.clone();
@@ -319,7 +356,7 @@ fn start_patch_task(
             },
         );
 
-        let context = collect_context(&profile);
+        let context = merge_attached_context(collect_context(&profile), attached_context.as_deref());
         emit_task_event(
             &app_for_thread,
             TaskEvent {
@@ -606,6 +643,160 @@ fn rollback_task(app: AppHandle, task_id: String) -> Result<RollbackResult, Stri
     Ok(result)
 }
 
+#[tauri::command]
+fn start_terminal(
+    app: AppHandle,
+    terminal_sessions: State<'_, TerminalSessions>,
+    request: StartTerminalRequest,
+) -> Result<StartTerminalResponse, String> {
+    let terminal_id = new_terminal_id();
+    let shell = request
+        .shell_path
+        .or_else(|| std::env::var("SHELL").ok())
+        .unwrap_or_else(|| "/bin/sh".to_string());
+    let cwd = request
+        .cwd
+        .or_else(|| {
+            request
+                .profile_id
+                .as_deref()
+                .and_then(profile_by_id)
+                .map(|profile| expand_home(profile.cwd))
+        })
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+    let cols = request.cols.unwrap_or(96);
+    let rows = request.rows.unwrap_or(28);
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut command = CommandBuilder::new(&shell);
+    command.cwd(cwd);
+    let child = pair.slave.spawn_command(command).map_err(|error| error.to_string())?;
+    drop(pair.slave);
+
+    let mut reader = pair.master.try_clone_reader().map_err(|error| error.to_string())?;
+    let writer = pair.master.take_writer().map_err(|error| error.to_string())?;
+    let session = TerminalSession {
+        master: pair.master,
+        writer,
+        child,
+    };
+
+    terminal_sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable".to_string())?
+        .insert(terminal_id.clone(), session);
+    let terminal_registry = terminal_sessions.inner().clone();
+
+    emit_terminal_event(
+        &app,
+        TerminalEvent {
+            terminal_id: terminal_id.clone(),
+            event: "terminal_started",
+            data: None,
+            exit_code: None,
+        },
+    );
+
+    let app_for_thread = app.clone();
+    let terminal_id_for_thread = terminal_id.clone();
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => emit_terminal_event(
+                    &app_for_thread,
+                    TerminalEvent {
+                        terminal_id: terminal_id_for_thread.clone(),
+                        event: "terminal_output",
+                        data: Some(String::from_utf8_lossy(&buffer[..size]).to_string()),
+                        exit_code: None,
+                    },
+                ),
+                Err(_) => break,
+            }
+        }
+        if let Ok(mut sessions) = terminal_registry.lock() {
+            sessions.remove(&terminal_id_for_thread);
+        }
+        emit_terminal_event(
+            &app_for_thread,
+            TerminalEvent {
+                terminal_id: terminal_id_for_thread,
+                event: "terminal_closed",
+                data: None,
+                exit_code: None,
+            },
+        );
+    });
+
+    Ok(StartTerminalResponse { terminal_id })
+}
+
+#[tauri::command]
+fn write_terminal(
+    terminal_sessions: State<'_, TerminalSessions>,
+    terminal_id: String,
+    data: String,
+) -> Result<(), String> {
+    let mut sessions = terminal_sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable".to_string())?;
+    let session = sessions
+        .get_mut(&terminal_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+    session
+        .writer
+        .write_all(data.as_bytes())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn resize_terminal(
+    terminal_sessions: State<'_, TerminalSessions>,
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let sessions = terminal_sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable".to_string())?;
+    let session = sessions
+        .get(&terminal_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+    session
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn close_terminal(
+    terminal_sessions: State<'_, TerminalSessions>,
+    terminal_id: String,
+) -> Result<(), String> {
+    let mut sessions = terminal_sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable".to_string())?;
+    let mut session = sessions
+        .remove(&terminal_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+    session.child.kill().map_err(|error| error.to_string())
+}
+
 fn profiles() -> Vec<TaskProfile> {
     vec![
         TaskProfile {
@@ -741,6 +932,10 @@ fn new_task_id() -> String {
     format!("task_{millis}")
 }
 
+fn new_terminal_id() -> String {
+    format!("terminal_{}", now_millis())
+}
+
 fn collect_context(profile: &TaskProfile) -> String {
     profile
         .readonly_commands
@@ -763,6 +958,16 @@ fn collect_context(profile: &TaskProfile) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn merge_attached_context(context: String, attached_context: Option<&str>) -> String {
+    let Some(attached_context) = attached_context else {
+        return context;
+    };
+    if attached_context.trim().is_empty() {
+        return context;
+    }
+    format!("{context}\n\nAttached terminal output:\n{attached_context}")
 }
 
 fn build_diagnose_prompt(profile: &TaskProfile, context: &str, user_prompt: &str) -> String {
@@ -863,6 +1068,10 @@ where
 fn emit_task_event(app: &AppHandle, event: TaskEvent) {
     persist_task_event(&event);
     let _ = app.emit("task://event", event);
+}
+
+fn emit_terminal_event(app: &AppHandle, event: TerminalEvent) {
+    let _ = app.emit("terminal://event", event);
 }
 
 fn persist_task_event(event: &TaskEvent) {
@@ -1156,6 +1365,7 @@ fn preview_text(text: &str, limit: usize) -> String {
 pub fn run() {
     tauri::Builder::default()
         .manage(RunningTasks::default())
+        .manage(TerminalSessions::default())
         .invoke_handler(tauri::generate_handler![
             detect_codex_cli,
             list_profiles,
@@ -1166,7 +1376,11 @@ pub fn run() {
             list_recent_tasks,
             list_changed_files,
             get_task_diff,
-            rollback_task
+            rollback_task,
+            start_terminal,
+            write_terminal,
+            resize_terminal,
+            close_terminal
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Codex Jarvis");
