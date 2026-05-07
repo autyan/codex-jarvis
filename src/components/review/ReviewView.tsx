@@ -140,8 +140,8 @@ export function ReviewView({ taskId, sessionName, onClose }: ReviewViewProps) {
 
       {applyResult ? (
         <div className="review-banner">
-          <strong>Apply complete</strong>
-          <span>accepted {applyResult.accepted.length} files</span>
+          <strong>{applyResult.executionStarted ? "Apply started" : "Apply complete"}</strong>
+          <span>sent {applyResult.accepted.length} reviewed files to Codex</span>
         </div>
       ) : null}
       {applyError ? <div className="review-banner error">{applyError}</div> : null}

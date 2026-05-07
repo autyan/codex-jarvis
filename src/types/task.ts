@@ -102,4 +102,5 @@ export type RollbackResult = {
 export type ApplyReviewResult = {
   taskId: string;
   accepted: string[];
+  executionStarted: boolean;
 };

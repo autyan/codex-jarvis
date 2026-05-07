@@ -184,6 +184,13 @@ struct RollbackResult {
 struct ApplyReviewResult {
     task_id: String,
     accepted: Vec<String>,
+    execution_started: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionMetadata {
+    profile_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -760,15 +767,37 @@ fn read_changed_file(task_id: String, path: String) -> Result<ChangedFileContent
 }
 
 #[tauri::command]
-fn apply_task_review(app: AppHandle, task_id: String) -> Result<ApplyReviewResult, String> {
+fn apply_task_review(
+    app: AppHandle,
+    running_tasks: State<'_, RunningTasks>,
+    task_id: String,
+) -> Result<ApplyReviewResult, String> {
     let changed_files = list_changed_files(task_id.clone())?;
     let Some(task_dir) = task_data_dir(&task_id) else {
         return Err("Task data directory is unavailable".to_string());
     };
+    if changed_files.is_empty() {
+        return Err("No reviewed proposal files are available to apply".to_string());
+    }
+    let task_workspace = session_workspace_dir(&task_id).ok_or_else(|| "Could not resolve task workspace".to_string())?;
+    let metadata = read_session_metadata(&task_workspace)?;
+    let profile = profile_by_id(&metadata.profile_id)
+        .ok_or_else(|| format!("Unknown profile: {}", metadata.profile_id))?;
+    let codex_cli = configured_codex_cli_path().ok_or_else(|| "Codex CLI path is not configured".to_string())?;
+    if running_tasks
+        .lock()
+        .map_err(|_| "Task registry is unavailable".to_string())?
+        .contains_key(&task_id)
+    {
+        return Err("Task is already running".to_string());
+    }
+
+    let proposal = read_reviewed_proposal(&changed_files);
 
     let result = ApplyReviewResult {
         task_id: task_id.clone(),
         accepted: changed_files.iter().map(|file| file.path.clone()).collect(),
+        execution_started: true,
     };
     let log = serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?;
     fs::write(task_dir.join("apply.json"), log).map_err(|error| error.to_string())?;
@@ -778,12 +807,25 @@ fn apply_task_review(app: AppHandle, task_id: String) -> Result<ApplyReviewResul
     emit_task_event(
         &app,
         TaskEvent {
-            task_id,
-            event: "task_finished",
-            text: Some(format!("Review applied with {} accepted files", result.accepted.len())),
-            status: Some("finished".to_string()),
+            task_id: task_id.clone(),
+            event: "task_started",
+            text: Some(format!(
+                "Apply started with {} reviewed proposal files",
+                result.accepted.len()
+            )),
+            status: Some("running".to_string()),
             exit_code: None,
         },
+    );
+
+    spawn_apply_execution(
+        app.clone(),
+        running_tasks.inner().clone(),
+        task_id.clone(),
+        profile,
+        task_workspace,
+        codex_cli,
+        proposal,
     );
 
     Ok(result)
@@ -1232,6 +1274,137 @@ fn merge_attached_context(context: String, attached_context: Option<&str>) -> St
     format!("{context}\n\nAttached terminal output:\n{attached_context}")
 }
 
+fn read_session_metadata(task_workspace: &Path) -> Result<SessionMetadata, String> {
+    let path = task_workspace.join(".jarvis-session.json");
+    let content = fs::read_to_string(&path).map_err(|error| format!("Could not read session metadata: {error}"))?;
+    serde_json::from_str(&content).map_err(|error| format!("Could not parse session metadata: {error}"))
+}
+
+fn read_reviewed_proposal(changed_files: &[ChangedFile]) -> String {
+    changed_files
+        .iter()
+        .map(|file| {
+            let content = if file.status == "deleted" {
+                "[deleted file]".to_string()
+            } else {
+                fs::read_to_string(&file.path).unwrap_or_else(|error| format!("[failed to read file: {error}]"))
+            };
+            format!("## {}\nStatus: {}\n\n{}\n", file.path, file.status, content)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn spawn_apply_execution(
+    app: AppHandle,
+    registry: RunningTasks,
+    task_id: String,
+    profile: TaskProfile,
+    task_workspace: PathBuf,
+    codex_cli: String,
+    proposal: String,
+) {
+    thread::spawn(move || {
+        let runtime_read_paths = runtime_read_paths(&profile, &task_workspace);
+        let runtime_write_paths = vec![task_workspace.to_string_lossy().to_string()];
+        let runtime_cwd = task_workspace.to_string_lossy().to_string();
+        let context = collect_context(&profile, &task_workspace);
+        emit_task_event(
+            &app,
+            TaskEvent {
+                task_id: task_id.clone(),
+                event: "context_collected",
+                text: Some(context.clone()),
+                status: Some("context_collected".to_string()),
+                exit_code: None,
+            },
+        );
+
+        let task_prompt = build_apply_prompt(
+            &profile,
+            &runtime_cwd,
+            &runtime_read_paths,
+            &runtime_write_paths,
+            &context,
+            &proposal,
+        );
+        let mut command = Command::new(&codex_cli);
+        command
+            .arg("exec")
+            .arg("--skip-git-repo-check")
+            .arg("--sandbox")
+            .arg("workspace-write");
+        for path in &runtime_write_paths {
+            command.arg("--add-dir").arg(codex_add_dir_path(path));
+        }
+        command
+            .arg(task_prompt)
+            .current_dir(&task_workspace)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        match command.spawn() {
+            Ok(mut child) => {
+                let stdout = child.stdout.take();
+                let stderr = child.stderr.take();
+                let child = Arc::new(Mutex::new(child));
+
+                if let Ok(mut tasks) = registry.lock() {
+                    tasks.insert(task_id.clone(), child.clone());
+                }
+
+                if let Some(stdout) = stdout {
+                    stream_reader(app.clone(), task_id.clone(), "stdout", stdout);
+                }
+                if let Some(stderr) = stderr {
+                    stream_reader(app.clone(), task_id.clone(), "stderr", stderr);
+                }
+
+                loop {
+                    let status = child.lock().ok().and_then(|mut child| child.try_wait().ok()).flatten();
+
+                    if let Some(status) = status {
+                        if let Ok(mut tasks) = registry.lock() {
+                            tasks.remove(&task_id);
+                        }
+                        let success = status.success();
+                        emit_task_event(
+                            &app,
+                            TaskEvent {
+                                task_id,
+                                event: if success { "task_finished" } else { "task_failed" },
+                                text: Some(if success {
+                                    "Apply execution finished".to_string()
+                                } else {
+                                    "Apply execution failed".to_string()
+                                }),
+                                status: Some(if success { "finished" } else { "failed" }.to_string()),
+                                exit_code: status.code(),
+                            },
+                        );
+                        break;
+                    }
+
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+            Err(error) => {
+                emit_task_event(
+                    &app,
+                    TaskEvent {
+                        task_id,
+                        event: "task_failed",
+                        text: Some(format!("Failed to start apply execution: {error}")),
+                        status: Some("failed".to_string()),
+                        exit_code: None,
+                    },
+                );
+            }
+        }
+    });
+}
+
 fn configured_codex_cli_path() -> Option<String> {
     read_app_settings().codex_cli_path
 }
@@ -1402,6 +1575,61 @@ User task:\n{user_prompt}",
             .map(|path| format!("  - {path}"))
             .collect::<Vec<_>>()
             .join("\n")
+    )
+}
+
+fn build_apply_prompt(
+    profile: &TaskProfile,
+    cwd: &str,
+    read_paths: &[String],
+    write_paths: &[String],
+    context: &str,
+    proposal: &str,
+) -> String {
+    format!(
+        "You are applying an approved Codex Jarvis proposal for a Linux workstation maintenance task.\n\n\
+Task profile:\n\
+- Name: {name}\n\
+- Platform: {platform}\n\
+- Domains:\n{domains}\n\
+- Working directory: {cwd}\n\
+- Mode: apply reviewed proposal\n\
+- Intended readable paths:\n{read_paths}\n\
+- Writable paths:\n{write_paths}\n\
+- Forbidden paths:\n{deny_paths}\n\n\
+Execution policy:\n\
+The user has clicked Apply. Execute the reviewed proposal now where it is allowed by the profile/domain boundary. You may run safe, non-privileged commands and write only inside the listed writable paths. Do not run sudo, package install/remove/update commands, service enable/disable commands, destructive file deletion, or boot/kernel/security changes unless the reviewed proposal contains the exact command and the profile domain allows direct execution. If an operation is outside the boundary, do not execute it; report the exact command or manual step needed.\n\n\
+Rules:\n\
+1. Treat the reviewed proposal below as the source of truth.\n\
+2. Respect the profile domains and forbidden paths.\n\
+3. Modify only writable paths listed above.\n\
+4. Do not run sudo.\n\
+5. Do not execute package, service, boot, kernel, or security changes unless they are explicitly allowed by the profile boundary.\n\
+6. Report what you executed and what remains manual.\n\n\
+Collected context:\n{context}\n\n\
+Reviewed proposal:\n{proposal}",
+        name = profile.name,
+        platform = profile.platform,
+        domains = format_profile_domains(profile),
+        cwd = cwd,
+        read_paths = read_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        write_paths = write_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        deny_paths = profile
+            .deny_paths
+            .iter()
+            .map(|path| format!("  - {path}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        context = context,
+        proposal = proposal,
     )
 }
 
