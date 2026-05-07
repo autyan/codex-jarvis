@@ -114,6 +114,7 @@ export function App() {
     setPinnedTaskIds((current) => current.filter((id) => id !== taskId));
     setActiveTaskId((current) => (current === taskId ? undefined : current));
     queryClient.removeQueries({ queryKey: ["task-events", taskId] });
+    clearPromptDraftForTask(taskId);
     if (deletingActiveTask) {
       setAttachedTerminalOutput(undefined);
     }
@@ -377,6 +378,10 @@ export function App() {
       ) : null}
     </div>
   );
+}
+
+function clearPromptDraftForTask(taskId: string) {
+  localStorage.removeItem(`codex-jarvis:prompt-draft:${taskId}`);
 }
 
 function ModelQuickControls({

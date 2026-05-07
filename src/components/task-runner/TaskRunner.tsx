@@ -152,10 +152,12 @@ export function TaskRunner({
       setStatus("idle");
       setLogs([]);
       setEventOffset(0);
+      setContextSnapshots([]);
       setPrompt(readPromptDraft(undefined));
       return;
     }
     setPrompt(readPromptDraft(selectedTaskId));
+    setContextSnapshots([]);
     void loadLatestEvents(selectedTaskId);
   }, [loadLatestEvents, selectedTaskId]);
 
@@ -494,6 +496,13 @@ function TaskSideTools({
         ) : (
           <p>No prompt has been sent in this window.</p>
         )}
+        {attachedContext ? (
+          <div className="context-snapshot">
+            <strong>Terminal selection</strong>
+            <span>{attachedContext.length} chars attached to the next send</span>
+            <pre>{attachedContext}</pre>
+          </div>
+        ) : null}
       </InspectorSection>
 
       <InspectorSection
