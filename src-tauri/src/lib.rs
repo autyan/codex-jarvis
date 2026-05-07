@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{BufRead, BufReader},
     io::Write,
@@ -170,6 +170,13 @@ struct TaskSummary {
     event_count: usize,
     latest_status: Option<String>,
     latest_preview: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PruneSessionsResult {
+    deleted: Vec<String>,
+    kept_limit: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -756,6 +763,13 @@ fn list_task_events(task_id: String, offset: usize, limit: usize) -> Result<Task
 
 #[tauri::command]
 fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
+    let mut summaries = collect_task_summaries()?;
+    summaries.truncate(limit);
+
+    Ok(summaries)
+}
+
+fn collect_task_summaries() -> Result<Vec<TaskSummary>, String> {
     let Some(tasks_dir) = tasks_data_dir() else {
         return Ok(Vec::new());
     };
@@ -790,13 +804,50 @@ fn list_recent_tasks(limit: usize) -> Result<Vec<TaskSummary>, String> {
     }
 
     summaries.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    summaries.truncate(limit);
 
     Ok(summaries)
 }
 
 #[tauri::command]
+fn prune_sessions(max_unpinned: usize, protected_task_ids: Vec<String>) -> Result<PruneSessionsResult, String> {
+    let max_unpinned = max_unpinned.max(1);
+    let protected = protected_task_ids.into_iter().collect::<HashSet<_>>();
+    let mut summaries = collect_task_summaries()?;
+    let mut disposable = summaries
+        .drain(..)
+        .filter(|task| {
+            !protected.contains(&task.task_id)
+                && !matches!(
+                    task.latest_status.as_deref(),
+                    Some("running" | "starting" | "snapshot_created" | "context_collected" | "awaiting_review")
+                )
+        })
+        .collect::<Vec<_>>();
+
+    disposable.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let delete_count = disposable.len().saturating_sub(max_unpinned);
+    let deleted = disposable
+        .into_iter()
+        .rev()
+        .take(delete_count)
+        .map(|task| {
+            let _ = delete_task_storage(&task.task_id);
+            task.task_id
+        })
+        .collect::<Vec<_>>();
+
+    Ok(PruneSessionsResult {
+        deleted,
+        kept_limit: max_unpinned,
+    })
+}
+
+#[tauri::command]
 fn delete_task(task_id: String) -> Result<(), String> {
+    delete_task_storage(&task_id)
+}
+
+fn delete_task_storage(task_id: &str) -> Result<(), String> {
     let task_dir = task_data_dir(&task_id).ok_or_else(|| "Could not resolve task data directory".to_string())?;
     if task_dir.exists() {
         fs::remove_dir_all(task_dir).map_err(|error| error.to_string())?;
@@ -2558,6 +2609,7 @@ pub fn run() {
             rename_task,
             list_task_events,
             list_recent_tasks,
+            prune_sessions,
             list_changed_files,
             get_task_diff,
             read_changed_file,

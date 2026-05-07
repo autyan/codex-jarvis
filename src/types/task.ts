@@ -83,6 +83,11 @@ export type TaskSummary = {
   latestPreview?: string;
 };
 
+export type PruneSessionsResult = {
+  deleted: string[];
+  keptLimit: number;
+};
+
 export type ChangedFile = {
   path: string;
   status: "created" | "modified" | "deleted";

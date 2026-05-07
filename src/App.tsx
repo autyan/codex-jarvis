@@ -1,9 +1,9 @@
 import { AlertCircle, BrainCircuit, CheckCircle2, FileDiff, Pencil, Pin, PinOff, Settings, Terminal, Trash2, UserRound } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
-import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { detectCodexCli, getAppSettings, setCodexModelSettings, setSudoFlowEnabled } from "./api/codex";
-import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, renameTask } from "./api/tasks";
+import { decideSudoRequest, deleteTask, listChangedFiles, listRecentTasks, pruneSessions, renameTask } from "./api/tasks";
 import { ReviewView } from "./components/review/ReviewView";
 import { SettingsView } from "./components/settings/SettingsView";
 import { SetupWizard } from "./components/setup/SetupWizard";
@@ -16,9 +16,12 @@ import type { SudoRequest, TaskSummary } from "./types/task";
 const TerminalView = lazy(() =>
   import("./components/terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
 );
+const sessionRetentionLimit = 64;
+const pinnedStorageKey = "codex-jarvis:pinned-sessions";
 
 export function App() {
   const queryClient = useQueryClient();
+  const pruneRunRef = useRef(false);
   const [activeProfileId, setActiveProfileId] = useState("daily-maintenance");
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [attachedTerminalOutput, setAttachedTerminalOutput] = useState<string>();
@@ -30,14 +33,14 @@ export function App() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [pendingSudoRequest, setPendingSudoRequest] = useState<SudoRequest>();
   const [setupOpen, setSetupOpen] = useState(true);
-  const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>([]);
+  const [pinnedTaskIds, setPinnedTaskIds] = useState<string[]>(() => readPinnedTaskIds());
   const codexQuery = useQuery({
     queryKey: ["codex-cli"],
     queryFn: detectCodexCli,
   });
   const recentTasksQuery = useQuery({
     queryKey: ["recent-tasks", "sidebar"],
-    queryFn: () => listRecentTasks(30),
+    queryFn: () => listRecentTasks(128),
     refetchInterval: 5000,
   });
   const appSettingsQuery = useQuery({
@@ -76,6 +79,27 @@ export function App() {
     document.addEventListener("contextmenu", disableDefaultContextMenu, { capture: true });
     return () => document.removeEventListener("contextmenu", disableDefaultContextMenu, { capture: true });
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(pinnedStorageKey, JSON.stringify(pinnedTaskIds));
+  }, [pinnedTaskIds]);
+
+  useEffect(() => {
+    const tasks = recentTasksQuery.data;
+    if (pruneRunRef.current || !tasks) return;
+    const unpinnedCount = tasks.filter((task) => !pinnedTaskIds.includes(task.taskId)).length;
+    if (unpinnedCount <= sessionRetentionLimit) return;
+    pruneRunRef.current = true;
+    pruneSessions(sessionRetentionLimit, [...pinnedTaskIds, activeTaskId].filter(Boolean) as string[])
+      .then((result) => {
+        if (result.deleted.length) {
+          void recentTasksQuery.refetch();
+        }
+      })
+      .finally(() => {
+        pruneRunRef.current = false;
+      });
+  }, [activeTaskId, pinnedTaskIds, recentTasksQuery.data, recentTasksQuery.refetch]);
 
   function togglePin(taskId: string) {
     setPinnedTaskIds((current) =>
@@ -217,6 +241,7 @@ export function App() {
           onRename={handleRenameTask}
           emptyLabel="No sessions yet"
         />
+        <p className="session-retention-note">Keeping latest {sessionRetentionLimit} unpinned sessions</p>
       </aside>
 
       <main className="workspace">
@@ -370,6 +395,15 @@ function ModelQuickControls({
       </select>
     </div>
   );
+}
+
+function readPinnedTaskIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function SudoAuthorizationDialog({

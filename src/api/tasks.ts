@@ -3,6 +3,7 @@ import type {
   ApplyReviewResult,
   ChangedFile,
   ChangedFileContent,
+  PruneSessionsResult,
   RollbackResult,
   StartDiagnoseTaskRequest,
   StartPatchTaskRequest,
@@ -38,6 +39,10 @@ export function listTaskEvents(taskId: string, offset = 0, limit = 200) {
 
 export function listRecentTasks(limit = 30) {
   return invoke<TaskSummary[]>("list_recent_tasks", { limit });
+}
+
+export function pruneSessions(maxUnpinned = 64, protectedTaskIds: string[] = []) {
+  return invoke<PruneSessionsResult>("prune_sessions", { maxUnpinned, protectedTaskIds });
 }
 
 export function listChangedFiles(taskId: string) {
